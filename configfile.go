@@ -1,0 +1,215 @@
+package cli
+
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync"
+)
+
+type ConfigFileSource interface {
+	Value(string) (any, bool)   // Get the value from the configuration file at the specified path.
+	Keys(string) []string       // Get the keys from the configuration file at the specified path.
+	SetValue(string, any) error // Set a value in the configuration file at the specified path.
+	DeleteKey(string) error     // Delete a key from the configuration file at the specified path.
+	Save() error                // Save the configuration file.
+}
+
+type SearchPathFunc func() []string
+type ConfigFileUnmarshal func(data []byte, v any) error
+type ConfigFileMarshal func(v any) ([]byte, error)
+
+type ConfigFileBase struct {
+	FileName   *string             // Point to the configuration file name
+	SearchPath SearchPathFunc      // Function to define the search paths for the config file
+	Unmarshal  ConfigFileUnmarshal // Function to decode the configuration file content
+	Marshal    ConfigFileMarshal   // Function to encode the configuration file content
+	data       map[string]any      // Parsed configuration data
+	isLoaded   bool                // Indicates if the configuration file has been loaded
+	mutex      sync.Mutex          // Mutex for thread-safe access to the configuration data
+	fileUsed   string              // The file that was used to load the configuration
+}
+
+func (c *ConfigFileBase) InitConfigFile() {
+	c.data = make(map[string]any)
+	c.isLoaded = false
+	c.mutex = sync.Mutex{}
+	c.fileUsed = ""
+}
+
+// searchForConfigFile searches for the configuration file in the defined search paths and returns the file name including the path, if not found it returns an empty string.
+func (c *ConfigFileBase) searchForConfigFile() string {
+	var paths []string
+
+	// If no paths function provided then check for the config file in the current directory
+	if c.SearchPath == nil {
+		paths = []string{"."}
+	} else {
+		paths = c.SearchPath()
+	}
+
+	for _, path := range paths {
+		fileName := filepath.Join(path, *c.FileName)
+		_, err := os.Stat(fileName)
+		if err == nil {
+			return fileName
+		}
+	}
+
+	return ""
+}
+
+func (c *ConfigFileBase) LoadData() error {
+	if !c.isLoaded {
+		c.mutex.Lock()
+		defer c.mutex.Unlock()
+
+		if !c.isLoaded {
+			filename := c.searchForConfigFile()
+			if filename == "" {
+				return fmt.Errorf("configuration file not found")
+			}
+
+			contentBytes, err := os.ReadFile(filename)
+			if err != nil {
+				return err
+			}
+
+			if err := c.Unmarshal(contentBytes, &c.data); err != nil {
+				return err
+			}
+			c.isLoaded = true
+			c.fileUsed = filename
+		}
+	}
+
+	return nil
+}
+
+func (c *ConfigFileBase) Save() error {
+	if !c.isLoaded || c.fileUsed == "" {
+		return fmt.Errorf("configuration file not loaded")
+	}
+
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+
+	contentBytes, err := c.Marshal(c.data)
+	if err != nil {
+		return err
+	}
+
+	return os.WriteFile(c.fileUsed, contentBytes, 0644)
+}
+
+func (c *ConfigFileBase) FileUsed() string {
+	return c.fileUsed
+}
+
+func (c *ConfigFileBase) traversePath(keys []string, current map[string]any) (map[string]any, bool) {
+	for _, key := range keys {
+		// Navigate deeper into the nested structure
+		if val, exists := current[key]; exists {
+			if nextMap, ok := val.(map[string]any); ok {
+				current = nextMap
+			} else {
+				return nil, false
+			}
+		} else {
+			return nil, false
+		}
+	}
+
+	return current, true
+}
+
+func (c *ConfigFileBase) Value(path string) (any, bool) {
+	if err := c.LoadData(); err != nil {
+		return nil, false
+	}
+
+	// Extract the value based on the provided path
+	keys := strings.Split(path, ".")
+	current := c.data
+
+	var exists bool
+	if current, exists = c.traversePath(keys[:len(keys)-1], current); exists {
+		if val, exists := current[keys[len(keys)-1]]; exists {
+			return val, true
+		}
+	}
+
+	return nil, false
+}
+
+func (c *ConfigFileBase) Keys(path string) []string {
+	if err := c.LoadData(); err != nil {
+		return nil
+	}
+
+	current := c.data
+	if path != "" {
+		var exists bool
+		current, exists = c.traversePath(strings.Split(path, "."), current)
+		if !exists {
+			return nil
+		}
+	}
+
+	// Return all keys in the current map
+	result := make([]string, 0, len(current))
+	for k := range current {
+		result = append(result, k)
+	}
+
+	return result
+}
+
+func (c *ConfigFileBase) SetValue(path string, value any) error {
+	if err := c.LoadData(); err != nil {
+		return err
+	}
+
+	// Extract the keys from the path
+	keys := strings.Split(path, ".")
+	current := c.data
+
+	// Traverse to the second last key
+	for _, key := range keys[:len(keys)-1] {
+		if nextMap, exists := current[key]; exists {
+			if nextMap, ok := nextMap.(map[string]any); ok {
+				current = nextMap
+			} else {
+				return fmt.Errorf("path %s is not a valid map", path)
+			}
+		} else {
+			// Create a new map if it doesn't exist
+			newMap := make(map[string]any)
+			current[key] = newMap
+			current = newMap
+		}
+	}
+
+	// Set the value at the final key
+	current[keys[len(keys)-1]] = value
+
+	return nil
+}
+
+func (c *ConfigFileBase) DeleteKey(path string) error {
+	if err := c.LoadData(); err != nil {
+		return err
+	}
+
+	// Extract the value based on the provided path
+	keys := strings.Split(path, ".")
+	current := c.data
+
+	var exists bool
+	if current, exists = c.traversePath(keys[:len(keys)-1], current); exists {
+		delete(current, keys[len(keys)-1])
+	}
+
+	return nil
+}
