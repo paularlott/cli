@@ -2,11 +2,13 @@
 
 A lightweight package for building command-line tools in Go.
 
+The library was created to allow the creation of CLI applications without the complexity and dependencies imposed by larger frameworks.
+
 ## Features
 
 - Command and subcommand support
 - Named arguments
-- Flags
+- Flags including global flags
 - Configuration file support (TOML and JSON)
 - Environment variable support
 - Built-in help and version commands
@@ -25,6 +27,7 @@ go get github.com/paularlott/cli
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 
@@ -33,9 +36,9 @@ import (
 
 func main() {
 	cmd := &cli.Command{
-		Name:        "example",
+		Name:        "myapp",
 		Version:     "1.0.0",
-		Usage:       "An example command",
+		Usage:       "An example command with subcommands",
 		Description: "This is a simple example command to demonstrate the CLI package features.",
 		Suggestions: true,
 		ConfigFile: cli_toml.NewConfigFile(&configFile, func() []string {
@@ -47,7 +50,7 @@ func main() {
 			}
 
 			paths = append(paths, filepath.Join(home, ".config"))
-			paths = append(paths, filepath.Join(home, ".config", "example"))
+			paths = append(paths, filepath.Join(home, ".config", "myapp"))
 
 			return paths
 		}),
@@ -56,43 +59,45 @@ func main() {
 				Name:     "config",
 				AssignTo: &configFile,
 			},
-			&cli.StringSliceFlag{
-				Name:         "name",
-				Usage:        "This is a string slice flag for testing the CLI library",
-				Aliases:      []string{"n", "name2"},
-				DefaultValue: []string{"World"},
-				EnvVars:      []string{"EXAMPLE_NAME"},
-				ConfigPath:   []string{"testing.name"},
-				AssignTo:     &globalName,
-				Required:     true,
-			},
-			&cli.IntFlag{Name: "count", Aliases: []string{"c"}, DefaultValue: 1, Usage: "Some number"},
-			&cli.BoolFlag{Name: "verbose", DefaultValue: true, Global: true, Usage: "Enable verbose output"},
 		},
-		MaxArgs: cli.UnlimitedArgs,
-		Arguments: []cli.Argument{
-			&cli.StringArg{
-				Name:     "something",
-				Usage:    "A required string argument",
-				Required: true,
-			},
-			&cli.IntArg{
-				Name:  "number",
-				Usage: "An optional integer argument",
+		Subcommands: []*cli.Command{
+			{
+				Name:        "sub1",
+				Usage:       "A subcommand with flags and arguments",
+				Description: "This is a subcommand to demonstrate nested commands.",
+				Suggestions: true,
+				Flags: []cli.Flag{
+					&cli.StringFlag{
+						Name:     "flag1",
+						AssignTo: &sub1Flag,
+					},
+					&cli.IntFlag{Name: "number", Aliases: []string{"n"}, DefaultValue: 1, Usage: "Some number"},
+				},
+				Arguments: []cli.Argument{
+					&cli.StringArg{
+						Name:     "something",
+						Usage:    "A required string argument",
+						Required: true,
+					},
+					&cli.IntArg{
+						Name:  "number",
+						Usage: "An optional integer argument",
+					},
+				},
+				Run: func(ctx context.Context, cmd *cli.Command) error {
+					fmt.Println("Flag1:", sub1Flag)
+					fmt.Println("Number:", cmd.GetInt("number"))
+					fmt.Println("Arguments:", cmd.GetArgs())
+					fmt.Println("Named Argument 'something':", cmd.GetStringArg("something"))
+					fmt.Println("Named Argument 'number':", cmd.GetIntArg("number"))
+
+					return nil
+				},
 			},
 		},
 		Run: func(ctx context.Context, cmd *cli.Command) error {
-			fmt.Println("Name:", cmd.GetStringSlice("name"))
-			fmt.Println("Name Global:", globalName)
-			fmt.Println("Count:", cmd.GetInt("count"))
-			fmt.Println("Verbose:", cmd.GetBool("verbose"))
 			fmt.Println("Config File:", configFile)
-
 			fmt.Println("Arguments:", cmd.GetArgs())
-			fmt.Println("Named Argument 'something':", cmd.GetStringArg("something"))
-			fmt.Println("Named Argument 'number':", cmd.GetIntArg("number"))
-
-			fmt.Println("Keys:", cmd.ConfigFile.Keys("server"))
 
 			return nil
 		},
@@ -108,11 +113,23 @@ func main() {
 }
 ```
 
-## Shell Completion
+## Examples
 
-The CLI supports generating shell completion scripts for Bash, Zsh, and Fish.
+### Basic Command
 
-### Bash
+```bash
+myapp --config config.toml hello
+```
+
+### Subcommand with Flags and Arguments
+
+```bash
+myapp sub1 -flag1 value 42 example_arg
+```
+
+### Shell Completion
+
+#### Bash
 
 ```shell
 # Generate the completion script
@@ -120,21 +137,21 @@ myapp completion bash > ~/.bash_completion.d/myapp
 source ~/.bash_completion.d/myapp
 ```
 
-### Zsh
+#### Zsh
 
 ```shell
 # Generate the completion script
 myapp completion zsh > "${fpath[1]}/_myapp"
 ```
 
-On macOS the following 2 lines my be required in `~/.zshrc`:
+On macOS, you may need to add these lines to your `~/.zshrc`:
 
 ```shell
 autoload -U compinit
 compinit
 ```
 
-### Fish
+#### Fish
 
 ```shell
 myapp completion fish > ~/.config/fish/completions/myapp.fish
