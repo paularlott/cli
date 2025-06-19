@@ -1,14 +1,2 @@
-[server]
-  [server.mysql]
-    host = "localhost"
-    password = "password"
-    port = 3306
-    user = "root"
-  [server.redis]
-    host = "localhost"
-    port = 6379
-
 [testing]
-  name = ["unit", "integration", "e2e"]
-  [testing.things]
-    dog1 = "Rocky"
+  name = ["apple", "orange", "banana"]
