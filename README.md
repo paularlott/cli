@@ -13,7 +13,9 @@ The library was created to allow the creation of CLI applications without the co
 - Environment variable support
 - Built-in help and version commands
 - Optional suggestions when command not found
+- Automatic help generation
 - Command completions for Bash, Zsh, Fish and PowerShell
+- Storing of flag values into variables
 
 ## Installation
 
@@ -21,7 +23,9 @@ The library was created to allow the creation of CLI applications without the co
 go get github.com/paularlott/cli
 ```
 
-## Usage
+Requires Go version 1.24.4 or later
+
+## Quick Start
 
 ```go
 package main
@@ -38,66 +42,16 @@ func main() {
 	cmd := &cli.Command{
 		Name:        "myapp",
 		Version:     "1.0.0",
-		Usage:       "An example command with subcommands",
+		Usage:       "Simple Example",
 		Description: "This is a simple example command to demonstrate the CLI package features.",
-		Suggestions: true,
-		ConfigFile: cli_toml.NewConfigFile(&configFile, func() []string {
-			paths := []string{"."}
-
-			home, err := os.UserHomeDir()
-			if err == nil {
-				paths = append(paths, home)
-			}
-
-			paths = append(paths, filepath.Join(home, ".config"))
-			paths = append(paths, filepath.Join(home, ".config", "myapp"))
-
-			return paths
-		}),
 		Flags: []cli.Flag{
 			&cli.StringFlag{
-				Name:     "config",
-				AssignTo: &configFile,
-			},
-		},
-		Subcommands: []*cli.Command{
-			{
-				Name:        "sub1",
-				Usage:       "A subcommand with flags and arguments",
-				Description: "This is a subcommand to demonstrate nested commands.",
-				Suggestions: true,
-				Flags: []cli.Flag{
-					&cli.StringFlag{
-						Name:     "flag1",
-						AssignTo: &sub1Flag,
-					},
-					&cli.IntFlag{Name: "number", Aliases: []string{"n"}, DefaultValue: 1, Usage: "Some number"},
-				},
-				Arguments: []cli.Argument{
-					&cli.StringArg{
-						Name:     "something",
-						Usage:    "A required string argument",
-						Required: true,
-					},
-					&cli.IntArg{
-						Name:  "number",
-						Usage: "An optional integer argument",
-					},
-				},
-				Run: func(ctx context.Context, cmd *cli.Command) error {
-					fmt.Println("Flag1:", sub1Flag)
-					fmt.Println("Number:", cmd.GetInt("number"))
-					fmt.Println("Arguments:", cmd.GetArgs())
-					fmt.Println("Named Argument 'something':", cmd.GetStringArg("something"))
-					fmt.Println("Named Argument 'number':", cmd.GetIntArg("number"))
-
-					return nil
-				},
+				Name:     "name",
+				Usage:    "Your name",
 			},
 		},
 		Run: func(ctx context.Context, cmd *cli.Command) error {
-			fmt.Println("Config File:", configFile)
-			fmt.Println("Arguments:", cmd.GetArgs())
+			fmt.Println("Hello:", cmd.GetString("name"))
 
 			return nil
 		},
@@ -113,47 +67,26 @@ func main() {
 }
 ```
 
-## Examples
+## Help Command
 
-### Basic Command
+When the help is enabled `-h` or `--help` will show the usage information for the current command.
 
-```bash
-myapp --config config.toml hello
-```
+### Help Syntax Notation
 
-### Subcommand with Flags and Arguments
+| Syntax        | Description                   |
+| ------------- | ----------------------------- |
+| `<required>`  | A required argument           |
+| `[optional]`  | An optional argument          |
+| `[args...]`   | Additional optional arguments |
+| `<args...>`   | Additional arguments          |
+| `[flags]`     | Command flags                 |
+| `[command]`   | Subcommands available         |
 
-```bash
-myapp sub1 -flag1 value 42 example_arg
-```
+## Documentation
 
-### Shell Completion
+- [Arguments](docs/arguments.md)
+- [Shell Completion](docs/shell_completion.md)
 
-#### Bash
+## License
 
-```shell
-# Generate the completion script
-myapp completion bash > ~/.bash_completion.d/myapp
-source ~/.bash_completion.d/myapp
-```
-
-#### Zsh
-
-```shell
-# Generate the completion script
-myapp completion zsh > "${fpath[1]}/_myapp"
-```
-
-On macOS, you may need to add these lines to your `~/.zshrc`:
-
-```shell
-autoload -U compinit
-compinit
-```
-
-#### Fish
-
-```shell
-myapp completion fish > ~/.config/fish/completions/myapp.fish
-source ~/.config/fish/completions/myapp.fish
-```
+This project is licensed under the MIT License - see [LICENSE.txt](LICENSE.txt) file for details.

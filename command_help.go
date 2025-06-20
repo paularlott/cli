@@ -45,7 +45,11 @@ func (c *Command) ShowHelp() {
 	}
 
 	if c.MaxArgs > 0 || c.MaxArgs == UnlimitedArgs {
-		usageString += fmt.Sprintf(" [args...]")
+		if c.MinArgs > 0 {
+			usageString += " <args...>"
+		} else {
+			usageString += " [args...]"
+		}
 	}
 
 	fmt.Println(usageString)

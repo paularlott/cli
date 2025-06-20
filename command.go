@@ -20,6 +20,7 @@ type Command struct {
 	Description    string                                                           // Longer description of the command, e.g. "This command starts the server with the given configuration", "This command shows the current configuration", etc.
 	Flags          []Flag                                                           // Flags that are available for this command only
 	Arguments      []Argument                                                       // Arguments that can be passed to this command, e.g. "server start <config-file>", "config show <section>", etc.
+	MinArgs        int                                                              // Minimum number of unnamed arguments that are required for this command e.g. 0 for no minimum.
 	MaxArgs        int                                                              // Maximum number of unnamed arguments that are allowed for this command e.g. 0 for no arguments, -1 for unlimited, or a specific number like 2 for "server start <config-file> <port>
 	ConfigFile     ConfigFileSource                                                 // Configuration file reader.
 	Commands       []*Command                                                       // Subcommands that can be executed under this command, e.g. "server start", "server stop", etc.

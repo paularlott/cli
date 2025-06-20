@@ -23,6 +23,11 @@ func main() {
 		Description: "This is a simple example command to demonstrate the CLI package features.",
 		Suggestions: true,
 		ConfigFile: cli_toml.NewConfigFile(&configFile, func() []string {
+			// Look for the config file in:
+			//   - The current directory
+			//   - The user's home directory
+			//   - The user's .config directory
+
 			paths := []string{"."}
 
 			home, err := os.UserHomeDir()
@@ -86,7 +91,7 @@ func main() {
 			fmt.Println("Named Argument 'something':", cmd.GetStringArg("something"))
 			fmt.Println("Named Argument 'number':", cmd.GetIntArg("number"))
 
-			fmt.Println("Keys:", cmd.ConfigFile.Keys("server"))
+			fmt.Println("Keys:", cmd.ConfigFile.GetKeys("testing"))
 
 			return nil
 		},

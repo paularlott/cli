@@ -8,9 +8,10 @@ type Argument interface {
 }
 
 type ArgumentTyped[T any] struct {
-	Name     string
-	Usage    string
-	Required bool // Whether this flag is required
+	Name     string // Name of the argument
+	Usage    string // Usage description for the argument
+	Required bool   // Whether this flag is required
+	AssignTo *T     // Optional pointer to the variable where the value should be stored
 }
 
 func (a *ArgumentTyped[T]) name() string {

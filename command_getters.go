@@ -215,15 +215,6 @@ func (c *Command) GetStringArg(name string) string {
 	return ""
 }
 
-func (c *Command) GetIntArg(name string) int {
-	if v, ok := c.parsedArgs[name]; ok {
-		if i, ok := v.(int); ok {
-			return i
-		}
-	}
-	return 0
-}
-
 func (c *Command) GetBoolArg(name string) bool {
 	if v, ok := c.parsedArgs[name]; ok {
 		if b, ok := v.(bool); ok {
@@ -231,4 +222,67 @@ func (c *Command) GetBoolArg(name string) bool {
 		}
 	}
 	return false
+}
+
+func (c *Command) GetInt64Arg(name string) int64 {
+	if v, ok := c.parsedArgs[name]; ok {
+		if i, ok := v.(int64); ok {
+			return i
+		}
+	}
+	return 0
+}
+
+func (c *Command) GetIntArg(name string) int {
+	return int(c.GetInt64Arg(name))
+}
+
+func (c *Command) GetInt32Arg(name string) int32 {
+	return int32(c.GetInt64Arg(name))
+}
+
+func (c *Command) GetInt16Arg(name string) int16 {
+	return int16(c.GetInt64Arg(name))
+}
+
+func (c *Command) GetInt8Arg(name string) int8 {
+	return int8(c.GetInt64Arg(name))
+}
+
+func (c *Command) GetUint64Arg(name string) uint64 {
+	if v, ok := c.parsedArgs[name]; ok {
+		if i, ok := v.(uint64); ok {
+			return i
+		}
+	}
+	return 0
+}
+
+func (c *Command) GetUintArg(name string) uint {
+	return uint(c.GetUint64Arg(name))
+}
+
+func (c *Command) GetUint32Arg(name string) uint32 {
+	return uint32(c.GetUint64Arg(name))
+}
+
+func (c *Command) GetUint16Arg(name string) uint16 {
+	return uint16(c.GetUint64Arg(name))
+}
+
+func (c *Command) GetUint8Arg(name string) uint8 {
+	return uint8(c.GetUint64Arg(name))
+}
+
+func (c *Command) GetFloat64Arg(name string) float64 {
+	if v, ok := c.parsedArgs[name]; ok {
+		if i, ok := v.(float64); ok {
+			return i
+		}
+	}
+	return 0
+}
+
+func (c *Command) GetFloat32Arg(name string) float32 {
+	return float32(c.GetFloat64Arg(name))
 }
