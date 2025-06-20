@@ -6,29 +6,36 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+
+	"github.com/fsnotify/fsnotify"
 )
 
 type ConfigFileSource interface {
-	Value(string) (any, bool)   // Get the value from the configuration file at the specified path.
-	Keys(string) []string       // Get the keys from the configuration file at the specified path.
-	SetValue(string, any) error // Set a value in the configuration file at the specified path.
-	DeleteKey(string) error     // Delete a key from the configuration file at the specified path.
-	Save() error                // Save the configuration file.
+	GetValue(string) (any, bool)            // Get the value from the configuration file at the specified path.
+	GetKeys(string) []string                // Get the keys from the configuration file at the specified path.
+	SetValue(string, any) error             // Set a value in the configuration file at the specified path.
+	DeleteKey(string) error                 // Delete a key from the configuration file at the specified path.
+	Save() error                            // Save the configuration file.
+	OnChange(ConfigFileChangeHandler) error // Track changes to the configuration file.
+	FileUsed() string                       // Get the file used for the configuration.
 }
 
 type SearchPathFunc func() []string
 type ConfigFileUnmarshal func(data []byte, v any) error
 type ConfigFileMarshal func(v any) ([]byte, error)
+type ConfigFileChangeHandler func()
 
 type ConfigFileBase struct {
-	FileName   *string             // Point to the configuration file name
-	SearchPath SearchPathFunc      // Function to define the search paths for the config file
-	Unmarshal  ConfigFileUnmarshal // Function to decode the configuration file content
-	Marshal    ConfigFileMarshal   // Function to encode the configuration file content
-	data       map[string]any      // Parsed configuration data
-	isLoaded   bool                // Indicates if the configuration file has been loaded
-	mutex      sync.Mutex          // Mutex for thread-safe access to the configuration data
-	fileUsed   string              // The file that was used to load the configuration
+	FileName      *string                 // Point to the configuration file name
+	SearchPath    SearchPathFunc          // Function to define the search paths for the config file
+	Unmarshal     ConfigFileUnmarshal     // Function to decode the configuration file content
+	Marshal       ConfigFileMarshal       // Function to encode the configuration file content
+	data          map[string]any          // Parsed configuration data
+	isLoaded      bool                    // Indicates if the configuration file has been loaded
+	mutex         sync.Mutex              // Mutex for thread-safe access to the configuration data
+	fileUsed      string                  // The file that was used to load the configuration
+	watcher       *fsnotify.Watcher       // File system watcher for monitoring changes
+	changeHandler ConfigFileChangeHandler // Change handler for config file changes
 }
 
 func (c *ConfigFileBase) InitConfigFile() {
@@ -124,7 +131,7 @@ func (c *ConfigFileBase) traversePath(keys []string, current map[string]any) (ma
 	return current, true
 }
 
-func (c *ConfigFileBase) Value(path string) (any, bool) {
+func (c *ConfigFileBase) GetValue(path string) (any, bool) {
 	if err := c.LoadData(); err != nil {
 		return nil, false
 	}
@@ -143,7 +150,7 @@ func (c *ConfigFileBase) Value(path string) (any, bool) {
 	return nil, false
 }
 
-func (c *ConfigFileBase) Keys(path string) []string {
+func (c *ConfigFileBase) GetKeys(path string) []string {
 	if err := c.LoadData(); err != nil {
 		return nil
 	}
@@ -209,6 +216,48 @@ func (c *ConfigFileBase) DeleteKey(path string) error {
 	var exists bool
 	if current, exists = c.traversePath(keys[:len(keys)-1], current); exists {
 		delete(current, keys[len(keys)-1])
+	}
+
+	return nil
+}
+
+func (c *ConfigFileBase) OnChange(handler ConfigFileChangeHandler) error {
+	// Ensure the config is loaded
+	if err := c.LoadData(); err != nil {
+		return err
+	}
+
+	// Remember the change handler
+	c.changeHandler = handler
+
+	// If no watcher then set it up
+	if c.watcher == nil {
+		c.watcher, _ = fsnotify.NewWatcher()
+
+		go func() {
+			for {
+				select {
+				case event, ok := <-c.watcher.Events:
+					if !ok {
+						return
+					}
+
+					if event.Op&fsnotify.Write == fsnotify.Write {
+						// Reload the config file & call the handler
+						c.isLoaded = false
+						c.LoadData()
+						c.changeHandler()
+					}
+
+				case _, ok := <-c.watcher.Errors:
+					if !ok {
+						return
+					}
+				}
+			}
+		}()
+
+		c.watcher.Add(c.fileUsed)
 	}
 
 	return nil

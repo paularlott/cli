@@ -40,98 +40,9 @@ type Command struct {
 }
 
 func (c *Command) Execute(ctx context.Context) error {
-	args := os.Args
-	if len(args) > 0 {
-		args = args[1:]
-	}
-
-	// Match subcommands
-	remainingArgs, matchedCommand, commandSequence, suggestions := c.matchSubcommands(args)
-	matchedCommand.commandChain = commandSequence
-
-	// Inject help and version flags
-	if !matchedCommand.DisableHelp {
-		matchedCommand.Flags = append(matchedCommand.Flags, &BoolFlag{
-			Name:         "help",
-			Aliases:      []string{"h"},
-			Usage:        "Show help for the command",
-			DefaultValue: true,
-			Global:       true,
-			HideDefault:  true,
-			HideType:     true,
-		})
-	}
-
-	if c == matchedCommand && !c.DisableVersion {
-		matchedCommand.Flags = append(matchedCommand.Flags, &BoolFlag{
-			Name:         "version",
-			Aliases:      []string{"v"},
-			Usage:        "Show version information",
-			DefaultValue: true,
-			HideDefault:  true,
-			HideType:     true,
-		})
-	}
-
-	// Parse the command line flags first
-	remainingArgs, err := matchedCommand.parseFlags(remainingArgs)
+	remainingArgs, matchedCommand, commandSequence, suggestions, combinedFlags, err := c.processFlags()
 	if err != nil {
 		return err
-	}
-
-	// Merge the global and command flags
-	combinedFlags := make([]Flag, 0, len(matchedCommand.globalFlags)+len(matchedCommand.Flags))
-	combinedFlags = append(combinedFlags, matchedCommand.globalFlags...)
-	combinedFlags = append(combinedFlags, matchedCommand.Flags...)
-
-	// For flags that are not set on the command line see if they can be set from an environment variable
-	for _, flag := range combinedFlags {
-		if _, ok := matchedCommand.parsedFlags[flag.getName()]; !ok {
-			flag.setFromEnvVar(matchedCommand.parsedFlags)
-		}
-	}
-
-	// For flags that are still not set, check if they can be set from a config
-	if c.ConfigFile != nil {
-		for _, flag := range combinedFlags {
-			if _, ok := matchedCommand.parsedFlags[flag.getName()]; !ok {
-				cfgPaths := flag.configPaths()
-				if len(cfgPaths) > 0 {
-					for _, path := range cfgPaths {
-						if v, ok := c.ConfigFile.Value(path); ok {
-							isSlice := reflect.TypeOf(v).Kind() == reflect.Slice
-							if isSlice == flag.isSlice() {
-								if isSlice {
-									switch vals := v.(type) {
-									case []interface{}:
-										for _, val := range vals {
-											flag.parseString(fmt.Sprintf("%v", val), true, matchedCommand.parsedFlags)
-										}
-									case []string:
-										for _, val := range vals {
-											flag.parseString(fmt.Sprintf("%v", val), true, matchedCommand.parsedFlags)
-										}
-									default:
-									}
-								} else {
-									flag.parseString(fmt.Sprintf("%v", v), true, matchedCommand.parsedFlags)
-								}
-							}
-						}
-					}
-				}
-			}
-		}
-	}
-
-	// For flags that are not set, set the default values
-	matchedCommand.givenFlags = make(map[string]bool)
-	for _, flag := range combinedFlags {
-		if _, ok := matchedCommand.parsedFlags[flag.getName()]; !ok {
-			flag.setFromDefault(matchedCommand.parsedFlags)
-		} else {
-			matchedCommand.givenFlags[flag.getName()] = true
-		}
 	}
 
 	// Are we showing version information
@@ -188,7 +99,7 @@ func (c *Command) Execute(ctx context.Context) error {
 	var postErr error = nil
 	var globalPostErr error = nil
 	if globalPreRunCmd != nil {
-		ctx, globalPreErr = globalPreRunCmd.GlobalPreRun(ctx, globalPreRunCmd)
+		ctx, globalPreErr = globalPreRunCmd.GlobalPreRun(ctx, matchedCommand)
 	}
 	if globalPreErr == nil && matchedCommand.PreRun != nil {
 		ctx, preErr = matchedCommand.PreRun(ctx, matchedCommand)
@@ -216,11 +127,118 @@ func (c *Command) Execute(ctx context.Context) error {
 	if preErr == nil && matchedCommand.PostRun != nil {
 		postErr = matchedCommand.PostRun(ctx, matchedCommand)
 	}
-	if globalPreRunCmd != nil && globalPreErr == nil {
-		globalPostErr = globalPreRunCmd.GlobalPostRun(ctx, globalPreRunCmd)
+	if globalPreRunCmd != nil && globalPreErr == nil && globalPreRunCmd.GlobalPostRun != nil {
+		globalPostErr = globalPreRunCmd.GlobalPostRun(ctx, matchedCommand)
 	}
 
 	return errors.Join(globalPreErr, preErr, runErr, postErr, globalPostErr)
+}
+
+func (c *Command) ReloadFlags() error {
+	_, _, _, _, _, err := c.processFlags()
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (c *Command) processFlags() ([]string, *Command, []*Command, []string, []Flag, error) {
+	args := os.Args
+	if len(args) > 0 {
+		args = args[1:]
+	}
+
+	// Match subcommands
+	remainingArgs, matchedCommand, commandSequence, suggestions := c.matchSubcommands(args)
+	matchedCommand.commandChain = commandSequence
+
+	// Inject help and version flags
+	if !matchedCommand.DisableHelp {
+		matchedCommand.Flags = append(matchedCommand.Flags, &BoolFlag{
+			Name:         "help",
+			Aliases:      []string{"h"},
+			Usage:        "Show help for the command",
+			DefaultValue: true,
+			Global:       true,
+			HideDefault:  true,
+			HideType:     true,
+		})
+	}
+
+	if c == matchedCommand && !c.DisableVersion {
+		matchedCommand.Flags = append(matchedCommand.Flags, &BoolFlag{
+			Name:         "version",
+			Aliases:      []string{"v"},
+			Usage:        "Show version information",
+			DefaultValue: true,
+			HideDefault:  true,
+			HideType:     true,
+		})
+	}
+
+	// Parse the command line flags first
+	remainingArgs, err := matchedCommand.parseFlags(remainingArgs)
+	if err != nil {
+		return nil, nil, nil, nil, nil, err
+	}
+
+	// Merge the global and command flags
+	combinedFlags := make([]Flag, 0, len(matchedCommand.globalFlags)+len(matchedCommand.Flags))
+	combinedFlags = append(combinedFlags, matchedCommand.globalFlags...)
+	combinedFlags = append(combinedFlags, matchedCommand.Flags...)
+
+	// For flags that are not set on the command line see if they can be set from an environment variable
+	for _, flag := range combinedFlags {
+		if _, ok := matchedCommand.parsedFlags[flag.getName()]; !ok {
+			flag.setFromEnvVar(matchedCommand.parsedFlags)
+		}
+	}
+
+	// For flags that are still not set, check if they can be set from a config
+	if c.ConfigFile != nil {
+		for _, flag := range combinedFlags {
+			if _, ok := matchedCommand.parsedFlags[flag.getName()]; !ok {
+				cfgPaths := flag.configPaths()
+				if len(cfgPaths) > 0 {
+					for _, path := range cfgPaths {
+						if v, ok := c.ConfigFile.GetValue(path); ok {
+							isSlice := reflect.TypeOf(v).Kind() == reflect.Slice
+							if isSlice == flag.isSlice() {
+								if isSlice {
+									switch vals := v.(type) {
+									case []interface{}:
+										for _, val := range vals {
+											flag.parseString(fmt.Sprintf("%v", val), true, matchedCommand.parsedFlags)
+										}
+									case []string:
+										for _, val := range vals {
+											flag.parseString(fmt.Sprintf("%v", val), true, matchedCommand.parsedFlags)
+										}
+									default:
+									}
+								} else {
+									flag.parseString(fmt.Sprintf("%v", v), true, matchedCommand.parsedFlags)
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// For flags that are not set, set the default values
+	matchedCommand.givenFlags = make(map[string]bool)
+	for _, flag := range combinedFlags {
+		if _, ok := matchedCommand.parsedFlags[flag.getName()]; !ok {
+			flag.setFromDefault(matchedCommand.parsedFlags)
+		} else {
+			matchedCommand.givenFlags[flag.getName()] = true
+		}
+	}
+
+	return remainingArgs, matchedCommand, commandSequence, suggestions, combinedFlags, nil
 }
 
 // matchSubcommands walks through args to find the deepest matching subcommand
