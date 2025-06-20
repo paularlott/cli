@@ -58,7 +58,13 @@ func (c *Command) ShowHelp() {
 
 	// Display detailed description if available
 	if c.Description != "" {
-		fmt.Printf("Description:\n   %s\n\n", c.Description)
+		fmt.Println("Description:")
+		paragraphs := strings.Split(c.Description, "\n\n")
+		for _, para := range paragraphs {
+			fmt.Printf("   ")
+			c.printWrappedText(strings.TrimSpace(para), 3, 80)
+			fmt.Println("\n")
+		}
 	}
 
 	// Display subcommands if any
