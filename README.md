@@ -4,14 +4,6 @@ A simple and lightweight package for building command-line tools in Go.
 
 This library was developed to address the need for creating CLI applications without the added complexity and dependencies of larger frameworks. It is designed to have a minimal footprint while maintaining functionality.
 
-Below is a comparison of the binary size between the same application built with this framework and two other popular frameworks:
-
-| Package         | Size (KB) | Δ KB  |
-|-----------------|-----------|-------|
-| This Library    | 15,780    | 0     |
-| urfave/cli      | 15,917    | +137  |
-| viper/cobra     | 16,744    | +964  |
-
 **Notes:**
 - Size (KB) values are rounded to the nearest whole number.
 - The Δ KB column shows the size difference, in kilobytes, compared to this library.
