@@ -4,10 +4,6 @@ A simple and lightweight package for building command-line tools in Go.
 
 This library was developed to address the need for creating CLI applications without the added complexity and dependencies of larger frameworks. It is designed to have a minimal footprint while maintaining functionality.
 
-**Notes:**
-- Size (KB) values are rounded to the nearest whole number.
-- The Δ KB column shows the size difference, in kilobytes, compared to this library.
-
 ## Features
 
 - Command and subcommand support
