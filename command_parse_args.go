@@ -147,5 +147,14 @@ func (c *Command) parseArgs(args []string) ([]string, error) {
 		}
 	}
 
+	// Run the list of parsed arguments and validate them
+	for _, arg := range c.Arguments {
+		if _, exists := c.parsedArgs[arg.name()]; exists {
+			if err := arg.validateArg(c); err != nil {
+				return args, err
+			}
+		}
+	}
+
 	return args, nil
 }

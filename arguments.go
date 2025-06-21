@@ -5,13 +5,15 @@ type Argument interface {
 	usage() string
 	isRequired() bool
 	typeText() string
+	validateArg(*Command) error
 }
 
 type ArgumentTyped[T any] struct {
-	Name     string // Name of the argument
-	Usage    string // Usage description for the argument
-	Required bool   // Whether this flag is required
-	AssignTo *T     // Optional pointer to the variable where the value should be stored
+	Name        string               // Name of the argument
+	Usage       string               // Usage description for the argument
+	Required    bool                 // Whether this flag is required
+	AssignTo    *T                   // Optional pointer to the variable where the value should be stored
+	ValidateArg func(*Command) error // Optional validation for the argument
 }
 
 func (a *ArgumentTyped[T]) name() string {
@@ -30,6 +32,13 @@ func (a *ArgumentTyped[T]) isRequired() bool {
 func (a *ArgumentTyped[T]) typeText() string {
 	var zero T
 	return getTypeText(zero)
+}
+
+func (a *ArgumentTyped[T]) validateArg(c *Command) error {
+	if a.ValidateArg != nil {
+		return a.ValidateArg(c)
+	}
+	return nil
 }
 
 type StringArg = ArgumentTyped[string]

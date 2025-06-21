@@ -44,6 +44,7 @@ func main() {
 			&cli.StringFlag{
 				Name:     "config",
 				AssignTo: &configFile,
+				Global:   true,
 			},
 			&cli.StringSliceFlag{
 				Name:         "name",
@@ -55,7 +56,18 @@ func main() {
 				AssignTo:     &globalName,
 				Required:     true,
 			},
-			&cli.IntFlag{Name: "count", Aliases: []string{"c"}, DefaultValue: 1, Usage: "Some number"},
+			&cli.IntFlag{
+				Name:         "count",
+				Aliases:      []string{"c"},
+				DefaultValue: 1,
+				Usage:        "Some number",
+				ValidateFlag: func(c *cli.Command) error {
+					if c.GetInt("count") > 10 {
+						return fmt.Errorf("count must be 10 or less")
+					}
+					return nil
+				},
+			},
 			&cli.BoolFlag{Name: "verbose", DefaultValue: true, Global: true, Usage: "Enable verbose output"},
 		},
 		MaxArgs: cli.UnlimitedArgs,
@@ -64,6 +76,12 @@ func main() {
 				Name:     "something",
 				Usage:    "A required string argument",
 				Required: true,
+				ValidateArg: func(c *cli.Command) error {
+					if len(c.GetStringArg("something")) > 2 {
+						return fmt.Errorf("argument 'something' is must be less than 2 characters long")
+					}
+					return nil
+				},
 			},
 			&cli.IntArg{
 				Name:  "number",

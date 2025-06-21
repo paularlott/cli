@@ -10,18 +10,18 @@ Named arguments are specified using the `Argument` field on the `cli.Command` de
 var ageValue int
 
 cmd := &cli.Command{
-	Arguments: []cli.Argument{
-		&cli.StringArg{
-			Name:     "name",
-			Usage:    "Your name",
-			Required: true,
-		},
-		&cli.IntArg{
-			Name:  "age",
-			Usage: "Your age",
-			AssignTo: &ageValue,
-		},
-	},
+  Arguments: []cli.Argument{
+    &cli.StringArg{
+      Name:     "name",
+      Usage:    "Your name",
+      Required: true,
+    },
+    &cli.IntArg{
+      Name:  "age",
+      Usage: "Your age",
+      AssignTo: &ageValue,
+    },
+  },
 }
 ```
 
@@ -42,20 +42,22 @@ In the case of age it's value will also be available in the variable `ageValue`.
 
 The CLI library supports the following argument types:
 
-- `StringArg`
-- `IntArg`
-- `Int8Arg`
-- `Int16Arg`
-- `Int32Arg`
-- `Int64Arg`
-- `UintArg`
-- `Uint8Arg`
-- `Uint16Arg`
-- `Uint32Arg`
-- `Uint64Arg`
-- `Float32Arg`
-- `Float64Arg`
-- `BoolArg`
+| Arg Type    | Go Type    | Getters                   |
+|-------------|------------|---------------------------|
+| StringArg   | `string`   | `GetStringArg(name)`      |
+| IntArg      | `int`      | `GetIntArg(name)`         |
+| Int8Arg     | `int8`     | `GetInt8Arg(name)`        |
+| Int16Arg    | `int16`    | `GetInt16Arg(name)`       |
+| Int32Arg    | `int32`    | `GetInt32Arg(name)`       |
+| Int64Arg    | `int64`    | `GetInt64Arg(name)`       |
+| UintArg     | `uint`     | `GetUintArg(name)`        |
+| Uint8Arg    | `uint8`    | `GetUint8Arg(name)`       |
+| Uint16Arg   | `uint16`   | `GetUint16Arg(name)`      |
+| Uint32Arg   | `uint32`   | `GetUint32Arg(name)`      |
+| Uint64Arg   | `uint64`   | `GetUint64Arg(name)`      |
+| Float32Arg  | `float32`  | `GetFloat32Arg(name)`     |
+| Float64Arg  | `float64`  | `GetFloat64Arg(name)`     |
+| BoolArg     | `bool`     | `GetBoolArg(name)`        |
 
 ## Positional Arguments
 
@@ -72,3 +74,26 @@ The positional arguments can be fetched as a string slice using `GetArgs()` on t
 ```go
 args := cmd.GetArgs()
 ```
+
+## Flag Validation
+
+Flags can be validated using the `ValidateArg` method. This method is called on each argument once all named arguments have been processed.
+
+```go
+cmd := &cli.Command{
+  Arguments: []cli.Argument{
+    &cli.IntArg{
+      Name:  "age",
+      Usage: "Your age",
+      ValidateArg: func(c *Command) error {
+        if c.GetInt("age") < 0 {
+          return fmt.Errorf("age must be positive")
+        }
+        return nil
+      },
+    },
+  },
+}
+```
+
+From the validator it's possible to query the values of flags and other named arguments so that complex validations can be performed.

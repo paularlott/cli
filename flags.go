@@ -20,26 +20,28 @@ type Flag interface {
 	isSlice() bool
 	isRequired() bool
 	isHidden() bool
-	flagDefinition() string   // Returns flag name and aliases with type (e.g., --port int, -p int)
-	getUsage() string         // Returns description of the flag (e.g., "Port to run the server on")
-	defaultValueText() string // Returns formatted default value (e.g., "8080")
-	typeText() string         // Returns type information (e.g., "int", "string", etc.)
+	flagDefinition() string      // Returns flag name and aliases with type (e.g., --port int, -p int)
+	getUsage() string            // Returns description of the flag (e.g., "Port to run the server on")
+	defaultValueText() string    // Returns formatted default value (e.g., "8080")
+	typeText() string            // Returns type information (e.g., "int", "string", etc.)
+	validateFlag(*Command) error // Runs optional user validation of the flag
 }
 
 type FlagTyped[T any] struct {
-	Name         string   // Name of the flag, e.g. "server"
-	Usage        string   // Short description of the flag, e.g. "The server to connect to"
-	Aliases      []string // Aliases for the flag, e.g. "s" for "server"
-	ConfigPath   []string // Configuration paths for the flag, e.g. "cli.server"
-	DefaultValue T        // Default value for the flag, e.g. "localhost" for server
-	DefaultText  string   // Text to show in usage as the default value, e.g. "localhost"
-	AssignTo     *T       // Optional pointer to the variable where the value should be stored
-	EnvVars      []string // Environment variables that can be used to set this flag, first found will be used
-	Required     bool     // Whether this flag is required
-	Global       bool     // Whether this flag is global, i.e. available in all commands
-	HideDefault  bool     // Whether to hide the default value in usage output
-	HideType     bool     // Whether to hide the type in usage output
-	Hidden       bool     // Whether this flag is hidden from help and command completions
+	Name         string               // Name of the flag, e.g. "server"
+	Usage        string               // Short description of the flag, e.g. "The server to connect to"
+	Aliases      []string             // Aliases for the flag, e.g. "s" for "server"
+	ConfigPath   []string             // Configuration paths for the flag, e.g. "cli.server"
+	DefaultValue T                    // Default value for the flag, e.g. "localhost" for server
+	DefaultText  string               // Text to show in usage as the default value, e.g. "localhost"
+	AssignTo     *T                   // Optional pointer to the variable where the value should be stored
+	EnvVars      []string             // Environment variables that can be used to set this flag, first found will be used
+	Required     bool                 // Whether this flag is required
+	Global       bool                 // Whether this flag is global, i.e. available in all commands
+	HideDefault  bool                 // Whether to hide the default value in usage output
+	HideType     bool                 // Whether to hide the type in usage output
+	Hidden       bool                 // Whether this flag is hidden from help and command completions
+	ValidateFlag func(*Command) error // Validation function for the flag
 }
 
 type StringFlag = FlagTyped[string]
@@ -138,6 +140,13 @@ func (f *FlagTyped[T]) setFromDefault(parsedFlags map[string]interface{}) {
 			*f.AssignTo = f.DefaultValue
 		}
 	}
+}
+
+func (f *FlagTyped[T]) validateFlag(c *Command) error {
+	if f.ValidateFlag != nil {
+		return f.ValidateFlag(c)
+	}
+	return nil
 }
 
 func (f *FlagTyped[T]) parseString(value string, hasValue bool, parsedFlags map[string]interface{}) error {

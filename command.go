@@ -41,7 +41,7 @@ type Command struct {
 }
 
 func (c *Command) Execute(ctx context.Context) error {
-	remainingArgs, matchedCommand, commandSequence, suggestions, combinedFlags, err := c.processFlags()
+	remainingArgs, matchedCommand, commandSequence, suggestions, err := c.processFlags()
 	if err != nil {
 		return err
 	}
@@ -62,15 +62,6 @@ func (c *Command) Execute(ctx context.Context) error {
 	if c.Suggestions && len(suggestions) > 0 && matchedCommand == c && len(remainingArgs) > 0 {
 		c.displaySuggestions(suggestions, remainingArgs)
 		return fmt.Errorf("unknown command")
-	}
-
-	// Check required flags are present
-	for _, flag := range combinedFlags {
-		if _, ok := matchedCommand.parsedFlags[flag.getName()]; !ok {
-			if flag.isRequired() {
-				return fmt.Errorf("required flag '%s' not set", flag.getName())
-			}
-		}
 	}
 
 	// Parse named arguments
@@ -136,7 +127,7 @@ func (c *Command) Execute(ctx context.Context) error {
 }
 
 func (c *Command) ReloadFlags() error {
-	_, _, _, _, _, err := c.processFlags()
+	_, _, _, _, err := c.processFlags()
 	if err != nil {
 		return err
 	}
@@ -144,7 +135,7 @@ func (c *Command) ReloadFlags() error {
 	return nil
 }
 
-func (c *Command) processFlags() ([]string, *Command, []*Command, []string, []Flag, error) {
+func (c *Command) processFlags() ([]string, *Command, []*Command, []string, error) {
 	args := os.Args
 	if len(args) > 0 {
 		args = args[1:]
@@ -181,7 +172,7 @@ func (c *Command) processFlags() ([]string, *Command, []*Command, []string, []Fl
 	// Parse the command line flags first
 	remainingArgs, err := matchedCommand.parseFlags(remainingArgs)
 	if err != nil {
-		return nil, nil, nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 
 	// Merge the global and command flags
@@ -239,7 +230,18 @@ func (c *Command) processFlags() ([]string, *Command, []*Command, []string, []Fl
 		}
 	}
 
-	return remainingArgs, matchedCommand, commandSequence, suggestions, combinedFlags, nil
+	// Check required flags are present and pass any validation
+	for _, flag := range combinedFlags {
+		if _, ok := matchedCommand.parsedFlags[flag.getName()]; !ok {
+			if flag.isRequired() {
+				return nil, nil, nil, nil, fmt.Errorf("required flag '%s' not set", flag.getName())
+			}
+		} else if err := flag.validateFlag(c); err != nil {
+			return nil, nil, nil, nil, err
+		}
+	}
+
+	return remainingArgs, matchedCommand, commandSequence, suggestions, nil
 }
 
 // matchSubcommands walks through args to find the deepest matching subcommand
