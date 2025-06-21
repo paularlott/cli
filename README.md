@@ -98,6 +98,8 @@ When the help is enabled `-h` or `--help` will show the usage information for th
 ## Documentation
 
 - [Arguments](docs/arguments.md)
+- [Commands](docs/commands.md)
+- [Configuration Files](docs/configuration_files.md)
 - [Flags](docs/flags.md)
 - [Shell Completion](docs/shell_completion.md)
 

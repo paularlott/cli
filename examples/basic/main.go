@@ -89,6 +89,7 @@ func main() {
 			},
 		},
 		PreRun: func(ctx context.Context, cmd *cli.Command) (context.Context, error) {
+			fmt.Println("Running before run")
 			ctx = context.WithValue(ctx, "exampleKey", "exampleValue")
 			return ctx, nil
 		},

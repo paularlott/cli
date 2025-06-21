@@ -25,10 +25,8 @@ type Command struct {
 	ConfigFile     ConfigFileSource                                                 // Configuration file reader.
 	Commands       []*Command                                                       // Subcommands that can be executed under this command, e.g. "server start", "server stop", etc.
 	Run            func(ctx context.Context, cmd *Command) error                    // Function to run when this command is executed, e.g. to start the server, show the config, etc.
-	PreRun         func(ctx context.Context, cmd *Command) (context.Context, error) // Function to run before command is executed, e.g. to set up logging, read config files, etc.
-	PostRun        func(ctx context.Context, cmd *Command) error                    // Function to run after command is executed, e.g. to clean up resources, log the result, etc.
-	GlobalPreRun   func(ctx context.Context, cmd *Command) (context.Context, error) // Function to run before any command or subcommand is executed, only the version closest to the command being executed is used.
-	GlobalPostRun  func(ctx context.Context, cmd *Command) error                    // Function to run after any command or subcommand is executed, the version from the command supplying GlobalPreRun is used.
+	PreRun         func(ctx context.Context, cmd *Command) (context.Context, error) // Function to run before any command is executed, e.g. to set up logging, read config files, etc.
+	PostRun        func(ctx context.Context, cmd *Command) error                    // Function to run after any command is executed, e.g. to clean up resources, log the result, etc.
 	DisableHelp    bool                                                             // Disable the automatic help command for this command
 	DisableVersion bool                                                             // Disable the automatic version command for this command
 	Suggestions    bool                                                             // Enable suggestions for unknown commands, if true then the command will try to suggest similar commands if the command is not found
@@ -75,55 +73,54 @@ func (c *Command) Execute(ctx context.Context) error {
 		return fmt.Errorf("too many arguments")
 	}
 
-	// From the command look back towards the root for the first command that implements GlobalPreRun
-	var globalPreRunCmd *Command = nil
+	// Execute, PreRun, Run, and PostRun
+	var preErr error = nil
+	var runErr error = nil
+	var postErr error = nil
+
+	// From the command look back towards the root for the first PreRun command
 	for i := len(commandSequence) - 1; i >= 0; i-- {
-		if commandSequence[i].GlobalPreRun != nil {
-			globalPreRunCmd = commandSequence[i]
+		if commandSequence[i].PreRun != nil {
+			ctx, preErr = commandSequence[i].PreRun(ctx, matchedCommand)
 			break
 		}
 	}
 
-	// Execute, GlobalPreRun, PreRun, Run, PostRun and GlobalPostRun
-	var globalPreErr error = nil
-	var preErr error = nil
-	var runErr error = nil
-	var postErr error = nil
-	var globalPostErr error = nil
-	if globalPreRunCmd != nil {
-		ctx, globalPreErr = globalPreRunCmd.GlobalPreRun(ctx, matchedCommand)
-	}
-	if globalPreErr == nil && matchedCommand.PreRun != nil {
-		ctx, preErr = matchedCommand.PreRun(ctx, matchedCommand)
-	}
-	if preErr == nil && globalPreErr == nil {
+	if preErr == nil {
 		if matchedCommand.Run != nil {
 			runErr = matchedCommand.Run(ctx, matchedCommand)
 		} else {
-			if matchedCommand.DisableHelp {
-				// Handle the case when no Run is defined and help is disabled
-				if c.Suggestions && len(remainingArgs) > 0 {
-					suggestions := c.findSimilarCommands(remainingArgs[0], matchedCommand.Commands, 2)
-					if len(suggestions) > 0 {
-						c.displaySuggestions(suggestions, remainingArgs)
-					} else {
-						fmt.Printf("Unknown command: %s\n", remainingArgs[0])
-					}
+			var suggestions []string
+
+			// Try for suggestions
+			if c.Suggestions && len(remainingArgs) > 0 {
+				suggestions = c.findSimilarCommands(remainingArgs[0], matchedCommand.Commands, 2)
+				if len(suggestions) > 0 {
+					c.displaySuggestions(suggestions, remainingArgs)
 				}
-				runErr = fmt.Errorf("unknown command")
-			} else {
+			}
+
+			if len(suggestions) == 0 && !matchedCommand.DisableHelp {
 				matchedCommand.ShowHelp()
+			} else {
+				if len(remainingArgs) > 0 {
+					fmt.Printf("Unknown command: %s\n", remainingArgs[0])
+				} else {
+					fmt.Printf("Unknown command\n")
+				}
 			}
 		}
 	}
-	if preErr == nil && matchedCommand.PostRun != nil {
-		postErr = matchedCommand.PostRun(ctx, matchedCommand)
-	}
-	if globalPreRunCmd != nil && globalPreErr == nil && globalPreRunCmd.GlobalPostRun != nil {
-		globalPostErr = globalPreRunCmd.GlobalPostRun(ctx, matchedCommand)
+
+	// From the command look back towards the root for the first PostRun command
+	for i := len(commandSequence) - 1; i >= 0; i-- {
+		if commandSequence[i].PostRun != nil {
+			postErr = commandSequence[i].PostRun(ctx, matchedCommand)
+			break
+		}
 	}
 
-	return errors.Join(globalPreErr, preErr, runErr, postErr, globalPostErr)
+	return errors.Join(preErr, runErr, postErr)
 }
 
 func (c *Command) ReloadFlags() error {
@@ -158,7 +155,7 @@ func (c *Command) processFlags() ([]string, *Command, []*Command, []string, erro
 		})
 	}
 
-	if c == matchedCommand && !c.DisableVersion {
+	if c == matchedCommand && !c.DisableVersion && c.Version != "" {
 		matchedCommand.Flags = append(matchedCommand.Flags, &BoolFlag{
 			Name:         "version",
 			Aliases:      []string{"v"},
