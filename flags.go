@@ -25,6 +25,8 @@ type Flag interface {
 	defaultValueText() string    // Returns formatted default value (e.g., "8080")
 	typeText() string            // Returns type information (e.g., "int", "string", etc.)
 	validateFlag(*Command) error // Runs optional user validation of the flag
+	getEnvVars() []string        // Returns environment variables associated with the flag
+	getConfigPaths() []string    // Returns configuration paths associated with the flag
 }
 
 type FlagTyped[T any] struct {
@@ -99,6 +101,14 @@ func (f *FlagTyped[T]) isRequired() bool {
 
 func (f *FlagTyped[T]) isHidden() bool {
 	return f.Hidden
+}
+
+func (f *FlagTyped[T]) getEnvVars() []string {
+	return f.EnvVars
+}
+
+func (f *FlagTyped[T]) getConfigPaths() []string {
+	return f.ConfigPath
 }
 
 func (f *FlagTyped[T]) register(longFlags, shortFlags map[string]Flag) {

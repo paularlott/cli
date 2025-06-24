@@ -207,6 +207,26 @@ func (c *Command) displayFormattedFlags(flags []Flag) {
 
 		// Print the description with proper wrapping
 		c.printWrappedText(desc, maxDefWidth+3, 80)
+
+		// Add environment variable and config path info on new lines if available
+		indent := strings.Repeat(" ", maxDefWidth+3)
+		envVars := flag.getEnvVars()
+		configPaths := flag.getConfigPaths()
+
+		// Build sources line for both env vars and config paths
+		var sources []string
+		if len(envVars) > 0 {
+			sources = append(sources, fmt.Sprintf("[env: %s]", envVars[0]))
+		}
+		if len(configPaths) > 0 {
+			sources = append(sources, fmt.Sprintf("[cfg: %s]", configPaths[0]))
+		}
+
+		// Print sources on the same line if any exist
+		if len(sources) > 0 {
+			fmt.Printf("\n%s%s", indent, strings.Join(sources, " "))
+		}
+
 		fmt.Println()
 	}
 }
