@@ -141,9 +141,9 @@ func (c *Command) ShowHelp() {
 		}
 
 		for _, arg := range c.Arguments {
-			prefix := "   "
+			required := ""
 			if arg.isRequired() {
-				prefix = " \033[1;31m*\033[0m "
+				required = " (Required)"
 			}
 
 			argNameWithType := arg.name() + " " + arg.typeText()
@@ -154,10 +154,10 @@ func (c *Command) ShowHelp() {
 			}
 
 			// Print argument name and type with padding
-			fmt.Printf("%s%-*s", prefix, maxArgWidth, argNameWithType)
+			fmt.Printf("   %-*s", maxArgWidth, argNameWithType)
 
 			// Print the description with proper wrapping
-			c.printWrappedText(arg.usage(), maxArgWidth+3, 80)
+			c.printWrappedText(arg.usage()+required, maxArgWidth+3, 80)
 			fmt.Println()
 		}
 		fmt.Println()
@@ -192,17 +192,17 @@ func (c *Command) displayFormattedFlags(flags []Flag) {
 			def = def[:maxDefWidth-5] + "..."
 		}
 
-		prefix := "   "
-		if flag.isRequired() {
-			prefix = " \033[1;31m*\033[0m "
-		}
-
 		// Print flag definition with padding
-		fmt.Printf("%s%-*s", prefix, maxDefWidth, def)
+		fmt.Printf("   %-*s", maxDefWidth, def)
 
 		// Add default value if available
 		if defaultValue != "" {
 			desc += fmt.Sprintf(" (default: %s)", defaultValue)
+		}
+
+		// Add required indicator
+		if flag.isRequired() {
+			desc += " (Required)"
 		}
 
 		// Print the description with proper wrapping
