@@ -216,15 +216,15 @@ func (c *Command) displayFormattedFlags(flags []Flag) {
 		// Build sources line for both env vars and config paths
 		var sources []string
 		if len(envVars) > 0 {
-			sources = append(sources, fmt.Sprintf("[env: %s]", envVars[0]))
+			sources = append(sources, fmt.Sprintf("env: %s", envVars[0]))
 		}
 		if len(configPaths) > 0 {
-			sources = append(sources, fmt.Sprintf("[cfg: %s]", configPaths[0]))
+			sources = append(sources, fmt.Sprintf("cfg: %s", configPaths[0]))
 		}
 
 		// Print sources on the same line if any exist
 		if len(sources) > 0 {
-			fmt.Printf("\n%s%s", indent, strings.Join(sources, " "))
+			fmt.Printf("\n%s(%s)\n", indent, strings.Join(sources, ", "))
 		}
 
 		fmt.Println()
