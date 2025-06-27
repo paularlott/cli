@@ -98,7 +98,8 @@ func (c *ConfigFileBase) LoadData() error {
 
 func (c *ConfigFileBase) Save() error {
 	if !c.isLoaded || c.fileUsed == "" {
-		return fmt.Errorf("configuration file not loaded")
+		// Assume the filename points to where the file should be created
+		c.fileUsed = *c.FileName
 	}
 
 	c.mutex.Lock()
@@ -176,10 +177,6 @@ func (c *ConfigFileBase) GetKeys(path string) []string {
 }
 
 func (c *ConfigFileBase) SetValue(path string, value any) error {
-	if err := c.LoadData(); err != nil {
-		return err
-	}
-
 	// Extract the keys from the path
 	keys := strings.Split(path, ".")
 	current := c.data

@@ -120,3 +120,45 @@ func NewConfigFile(fileName *string, searchPathFunc cli.SearchPathFunc) cli.Conf
 	return cfg
 }
 ```
+
+## Typed Configuration
+
+By default the configuration file is designed to be used by the flag processor however the accessor can be used with `cli.NewTypedConfigFile` to provide a strongly typed interface to the configuration data.
+
+```go
+cfg := cli.NewTypedConfigFile(cmd.ConfigFile)
+
+value := cfg.GetString("server.listen")
+```
+
+The typed accessor supports the following types:
+
+| Accessor              | Go Data Type      |
+|-----------------------|-------------------|
+| `GetString`           | `string`          |
+| `GetInt`              | `int`             |
+| `GetInt64`            | `int64`           |
+| `GetInt32`            | `int32`           |
+| `GetInt16`            | `int16`           |
+| `GetInt8`             | `int8`            |
+| `GetUint`             | `uint`            |
+| `GetUint64`           | `uint64`          |
+| `GetUint32`           | `uint32`          |
+| `GetUint16`           | `uint16`          |
+| `GetUint8`            | `uint8`           |
+| `GetBool`             | `bool`            |
+| `GetFloat32`          | `float32`         |
+| `GetFloat64`          | `float64`         |
+| `GetStringSlice`      | `[]string`        |
+| `GetIntSlice`         | `[]int`           |
+| `GetInt64Slice`       | `[]int64`         |
+| `GetInt32Slice`       | `[]int32`         |
+| `GetInt16Slice`       | `[]int16`         |
+| `GetInt8Slice`        | `[]int8`          |
+| `GetUintSlice`        | `[]uint`          |
+| `GetUint64Slice`      | `[]uint64`        |
+| `GetUint32Slice`      | `[]uint32`        |
+| `GetUint16Slice`      | `[]uint16`        |
+| `GetUint8Slice`       | `[]uint8`         |
+| `GetFloat32Slice`     | `[]float32`       |
+| `GetFloat64Slice`     | `[]float64`       |
