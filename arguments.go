@@ -31,7 +31,7 @@ func (a *ArgumentTyped[T]) isRequired() bool {
 // Add a typeText method to ArgumentTyped similar to FlagTyped
 func (a *ArgumentTyped[T]) typeText() string {
 	var zero T
-	return getTypeText(zero)
+	return GetTypeText(zero)
 }
 
 func (a *ArgumentTyped[T]) validateArg(c *Command) error {

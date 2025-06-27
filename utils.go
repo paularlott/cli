@@ -5,7 +5,7 @@ import (
 )
 
 // GetTypeText returns a string representation of a type for help text display
-func getTypeText(value interface{}) string {
+func GetTypeText(value interface{}) string {
 	t := reflect.TypeOf(value)
 
 	// Handle nil value
@@ -36,4 +36,9 @@ func getTypeText(value interface{}) string {
 	default:
 		return "value"
 	}
+}
+
+// StrToPtr converts a string to a pointer to a string.
+func StrToPtr(v string) *string {
+	return &v
 }

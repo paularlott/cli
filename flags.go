@@ -575,5 +575,5 @@ func (f *FlagTyped[T]) defaultValueText() string {
 }
 
 func (f *FlagTyped[T]) typeText() string {
-	return getTypeText(f.DefaultValue)
+	return GetTypeText(f.DefaultValue)
 }
