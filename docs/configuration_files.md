@@ -4,6 +4,8 @@ Flags can be set using a configuration file. The configuration file format is ty
 
 The configuration file reader takes a pointer to a variable which will hold the name of the configuration file to load, this allows flags to set the configuration file. The reader can accept a function that returns a list of paths to search for the configuration file. The search path is tried if the configuration file can't be opened on the first attempt.
 
+When loading the configuration file if the filename doesn't exist and doesn't start with a `.` then the library will look for a file with the same name but with a `.` prefix (i.e. a hidden file).
+
 The following example provides a TOML configuration file reader, that searches for the config file in multiple locations.
 
 ```go
@@ -43,7 +45,7 @@ cmd := &cli.Command{
 }
 ```
 
-The `ConfigPath` field on the `Flag` struct can be used to specify the path to data within the configuration file. Where multiple paths are specified, the first one found will be used. In the above example `server.listen` will use the `listen` value from the `server` section of the configuration file.
+The `ConfigPath` field on the `Flag` struct is used to specify the path to data within the configuration file. Where multiple paths are specified, the first one found will be used. In the above example `server.listen` will use the `listen` value from the `server` section of the configuration file.
 
 ```toml
 [server]

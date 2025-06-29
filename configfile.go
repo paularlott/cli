@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 
@@ -51,18 +52,32 @@ func (c *ConfigFileBase) InitConfigFile() {
 func (c *ConfigFileBase) searchForConfigFile() string {
 	var paths []string
 
-	// If no paths function provided then check for the config file in the current directory
 	if c.SearchPath == nil {
 		paths = []string{"."}
 	} else {
 		paths = c.SearchPath()
 	}
 
+	fileName := *c.FileName
+
+	dotFileRegex := regexp.MustCompile(`^\.[^./]`)
+	lookForDotOnly := dotFileRegex.MatchString(fileName)
+
 	for _, path := range paths {
-		fileName := filepath.Join(path, *c.FileName)
-		_, err := os.Stat(fileName)
-		if err == nil {
-			return fileName
+		var candidates []string
+		if lookForDotOnly {
+			candidates = []string{filepath.Join(path, fileName)}
+		} else {
+			candidates = []string{
+				filepath.Join(path, fileName),
+				filepath.Join(path, "."+fileName),
+			}
+		}
+		for _, candidate := range candidates {
+			_, err := os.Stat(candidate)
+			if err == nil {
+				return candidate
+			}
 		}
 	}
 
