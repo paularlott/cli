@@ -129,6 +129,11 @@ func (c *ConfigFileBase) Save() error {
 }
 
 func (c *ConfigFileBase) FileUsed() string {
+	c.LoadData()
+	if !c.isLoaded {
+		return ""
+	}
+
 	return c.fileUsed
 }
 
