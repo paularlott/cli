@@ -260,6 +260,9 @@ func (c *Command) matchSubcommands(args []string) ([]string, *Command, []*Comman
 					}
 				}
 
+				// Copy the config file down
+				subcmd.ConfigFile = c.ConfigFile
+
 				current = subcmd
 				remaining = remaining[1:]
 				found = true
