@@ -1,5 +1,11 @@
 package cli
 
+import (
+	"fmt"
+	"reflect"
+	"strings"
+)
+
 type ConfigFileTyped interface {
 	ConfigFileSource
 
@@ -81,14 +87,326 @@ func (w *ConfigFileTypedWrapper) OnChange(h ConfigFileChangeHandler) error {
 }
 func (w *ConfigFileTypedWrapper) FileUsed() string { return w.inner.FileUsed() }
 
+// convertValue handles type conversion from any value to target type T
+func convertValue[T any](value any) T {
+	var zero T
+
+	// Try direct type assertion first
+	if cast, ok := value.(T); ok {
+		return cast
+	}
+
+	// Handle type conversions based on target type
+	switch any(zero).(type) {
+	case int:
+		if f, ok := value.(float64); ok {
+			return any(int(f)).(T)
+		} else if i, ok := value.(int64); ok {
+			return any(int(i)).(T)
+		} else if i, ok := value.(int32); ok {
+			return any(int(i)).(T)
+		} else if i, ok := value.(int16); ok {
+			return any(int(i)).(T)
+		} else if i, ok := value.(int8); ok {
+			return any(int(i)).(T)
+		} else if u, ok := value.(uint); ok {
+			return any(int(u)).(T)
+		} else if u, ok := value.(uint64); ok {
+			return any(int(u)).(T)
+		} else if u, ok := value.(uint32); ok {
+			return any(int(u)).(T)
+		} else if u, ok := value.(uint16); ok {
+			return any(int(u)).(T)
+		} else if u, ok := value.(uint8); ok {
+			return any(int(u)).(T)
+		}
+	case int64:
+		if f, ok := value.(float64); ok {
+			return any(int64(f)).(T)
+		} else if i, ok := value.(int); ok {
+			return any(int64(i)).(T)
+		} else if i, ok := value.(int32); ok {
+			return any(int64(i)).(T)
+		} else if i, ok := value.(int16); ok {
+			return any(int64(i)).(T)
+		} else if i, ok := value.(int8); ok {
+			return any(int64(i)).(T)
+		} else if u, ok := value.(uint); ok {
+			return any(int64(u)).(T)
+		} else if u, ok := value.(uint64); ok {
+			return any(int64(u)).(T)
+		} else if u, ok := value.(uint32); ok {
+			return any(int64(u)).(T)
+		} else if u, ok := value.(uint16); ok {
+			return any(int64(u)).(T)
+		} else if u, ok := value.(uint8); ok {
+			return any(int64(u)).(T)
+		}
+	case int32:
+		if f, ok := value.(float64); ok {
+			return any(int32(f)).(T)
+		} else if i, ok := value.(int); ok {
+			return any(int32(i)).(T)
+		} else if i, ok := value.(int64); ok {
+			return any(int32(i)).(T)
+		} else if i, ok := value.(int16); ok {
+			return any(int32(i)).(T)
+		} else if i, ok := value.(int8); ok {
+			return any(int32(i)).(T)
+		} else if u, ok := value.(uint); ok {
+			return any(int32(u)).(T)
+		} else if u, ok := value.(uint64); ok {
+			return any(int32(u)).(T)
+		} else if u, ok := value.(uint32); ok {
+			return any(int32(u)).(T)
+		} else if u, ok := value.(uint16); ok {
+			return any(int32(u)).(T)
+		} else if u, ok := value.(uint8); ok {
+			return any(int32(u)).(T)
+		}
+	case int16:
+		if f, ok := value.(float64); ok {
+			return any(int16(f)).(T)
+		} else if i, ok := value.(int); ok {
+			return any(int16(i)).(T)
+		} else if i, ok := value.(int64); ok {
+			return any(int16(i)).(T)
+		} else if i, ok := value.(int32); ok {
+			return any(int16(i)).(T)
+		} else if i, ok := value.(int8); ok {
+			return any(int16(i)).(T)
+		} else if u, ok := value.(uint); ok {
+			return any(int16(u)).(T)
+		} else if u, ok := value.(uint64); ok {
+			return any(int16(u)).(T)
+		} else if u, ok := value.(uint32); ok {
+			return any(int16(u)).(T)
+		} else if u, ok := value.(uint16); ok {
+			return any(int16(u)).(T)
+		} else if u, ok := value.(uint8); ok {
+			return any(int16(u)).(T)
+		}
+	case int8:
+		if f, ok := value.(float64); ok {
+			return any(int8(f)).(T)
+		} else if i, ok := value.(int); ok {
+			return any(int8(i)).(T)
+		} else if i, ok := value.(int64); ok {
+			return any(int8(i)).(T)
+		} else if i, ok := value.(int32); ok {
+			return any(int8(i)).(T)
+		} else if i, ok := value.(int16); ok {
+			return any(int8(i)).(T)
+		} else if u, ok := value.(uint); ok {
+			return any(int8(u)).(T)
+		} else if u, ok := value.(uint64); ok {
+			return any(int8(u)).(T)
+		} else if u, ok := value.(uint32); ok {
+			return any(int8(u)).(T)
+		} else if u, ok := value.(uint16); ok {
+			return any(int8(u)).(T)
+		} else if u, ok := value.(uint8); ok {
+			return any(int8(u)).(T)
+		}
+	case uint:
+		if f, ok := value.(float64); ok {
+			return any(uint(f)).(T)
+		} else if i, ok := value.(int); ok {
+			return any(uint(i)).(T)
+		} else if i, ok := value.(int64); ok {
+			return any(uint(i)).(T)
+		} else if i, ok := value.(int32); ok {
+			return any(uint(i)).(T)
+		} else if i, ok := value.(int16); ok {
+			return any(uint(i)).(T)
+		} else if i, ok := value.(int8); ok {
+			return any(uint(i)).(T)
+		} else if u, ok := value.(uint64); ok {
+			return any(uint(u)).(T)
+		} else if u, ok := value.(uint32); ok {
+			return any(uint(u)).(T)
+		} else if u, ok := value.(uint16); ok {
+			return any(uint(u)).(T)
+		} else if u, ok := value.(uint8); ok {
+			return any(uint(u)).(T)
+		}
+	case uint64:
+		if f, ok := value.(float64); ok {
+			return any(uint64(f)).(T)
+		} else if i, ok := value.(int); ok {
+			return any(uint64(i)).(T)
+		} else if i, ok := value.(int64); ok {
+			return any(uint64(i)).(T)
+		} else if i, ok := value.(int32); ok {
+			return any(uint64(i)).(T)
+		} else if i, ok := value.(int16); ok {
+			return any(uint64(i)).(T)
+		} else if i, ok := value.(int8); ok {
+			return any(uint64(i)).(T)
+		} else if u, ok := value.(uint); ok {
+			return any(uint64(u)).(T)
+		} else if u, ok := value.(uint32); ok {
+			return any(uint64(u)).(T)
+		} else if u, ok := value.(uint16); ok {
+			return any(uint64(u)).(T)
+		} else if u, ok := value.(uint8); ok {
+			return any(uint64(u)).(T)
+		}
+	case uint32:
+		if f, ok := value.(float64); ok {
+			return any(uint32(f)).(T)
+		} else if i, ok := value.(int); ok {
+			return any(uint32(i)).(T)
+		} else if i, ok := value.(int64); ok {
+			return any(uint32(i)).(T)
+		} else if i, ok := value.(int32); ok {
+			return any(uint32(i)).(T)
+		} else if i, ok := value.(int16); ok {
+			return any(uint32(i)).(T)
+		} else if i, ok := value.(int8); ok {
+			return any(uint32(i)).(T)
+		} else if u, ok := value.(uint); ok {
+			return any(uint32(u)).(T)
+		} else if u, ok := value.(uint64); ok {
+			return any(uint32(u)).(T)
+		} else if u, ok := value.(uint16); ok {
+			return any(uint32(u)).(T)
+		} else if u, ok := value.(uint8); ok {
+			return any(uint32(u)).(T)
+		}
+	case uint16:
+		if f, ok := value.(float64); ok {
+			return any(uint16(f)).(T)
+		} else if i, ok := value.(int); ok {
+			return any(uint16(i)).(T)
+		} else if i, ok := value.(int64); ok {
+			return any(uint16(i)).(T)
+		} else if i, ok := value.(int32); ok {
+			return any(uint16(i)).(T)
+		} else if i, ok := value.(int16); ok {
+			return any(uint16(i)).(T)
+		} else if i, ok := value.(int8); ok {
+			return any(uint16(i)).(T)
+		} else if u, ok := value.(uint); ok {
+			return any(uint16(u)).(T)
+		} else if u, ok := value.(uint64); ok {
+			return any(uint16(u)).(T)
+		} else if u, ok := value.(uint32); ok {
+			return any(uint16(u)).(T)
+		} else if u, ok := value.(uint8); ok {
+			return any(uint16(u)).(T)
+		}
+	case uint8:
+		if f, ok := value.(float64); ok {
+			return any(uint8(f)).(T)
+		} else if i, ok := value.(int); ok {
+			return any(uint8(i)).(T)
+		} else if i, ok := value.(int64); ok {
+			return any(uint8(i)).(T)
+		} else if i, ok := value.(int32); ok {
+			return any(uint8(i)).(T)
+		} else if i, ok := value.(int16); ok {
+			return any(uint8(i)).(T)
+		} else if i, ok := value.(int8); ok {
+			return any(uint8(i)).(T)
+		} else if u, ok := value.(uint); ok {
+			return any(uint8(u)).(T)
+		} else if u, ok := value.(uint64); ok {
+			return any(uint8(u)).(T)
+		} else if u, ok := value.(uint32); ok {
+			return any(uint8(u)).(T)
+		} else if u, ok := value.(uint16); ok {
+			return any(uint8(u)).(T)
+		}
+	case float32:
+		if f, ok := value.(float64); ok {
+			return any(float32(f)).(T)
+		} else if i, ok := value.(int); ok {
+			return any(float32(i)).(T)
+		} else if i, ok := value.(int64); ok {
+			return any(float32(i)).(T)
+		}
+	case float64:
+		if f, ok := value.(float32); ok {
+			return any(float64(f)).(T)
+		} else if i, ok := value.(int); ok {
+			return any(float64(i)).(T)
+		} else if i, ok := value.(int64); ok {
+			return any(float64(i)).(T)
+		}
+	case string:
+		if s, ok := value.(string); ok {
+			return any(s).(T)
+		} else if i, ok := value.(int); ok {
+			return any(fmt.Sprintf("%d", i)).(T)
+		} else if i, ok := value.(int64); ok {
+			return any(fmt.Sprintf("%d", i)).(T)
+		} else if f, ok := value.(float64); ok {
+			return any(fmt.Sprintf("%g", f)).(T)
+		} else if b, ok := value.(bool); ok {
+			return any(fmt.Sprintf("%t", b)).(T)
+		}
+	case bool:
+		if b, ok := value.(bool); ok {
+			return any(b).(T)
+		} else if s, ok := value.(string); ok {
+			// Handle string to bool conversion
+			switch strings.ToLower(s) {
+			case "true", "yes", "y", "1":
+				return any(true).(T)
+			case "false", "no", "n", "0":
+				return any(false).(T)
+			}
+		} else if i, ok := value.(int); ok {
+			return any(i != 0).(T)
+		} else if f, ok := value.(float64); ok {
+			return any(f != 0).(T)
+		}
+	}
+
+	return zero
+}
+
+// isZeroValue checks if a value is the zero value for its type
+func isZeroValue[T any](value T) bool {
+	return reflect.ValueOf(value).IsZero()
+}
+
+// getAs gets a value from the config and converts it to type T
 func getAs[T any](c ConfigFileSource, path string) T {
 	var zero T
 	if value, exists := c.GetValue(path); exists {
-		if cast, ok := value.(T); ok {
-			return cast
-		}
+		converted := convertValue[T](value)
+		return converted
 	}
 	return zero
+}
+
+// getAsSlice now uses convertValue for each element
+func getAsSlice[T any](c ConfigFileSource, path string) []T {
+	if value, exists := c.GetValue(path); exists {
+		// If already the correct type, return it
+		if cast, ok := value.([]T); ok {
+			return cast
+		}
+
+		// If it's a []interface{}, convert each element using convertValue
+		if arr, ok := value.([]interface{}); ok {
+			result := make([]T, 0, len(arr))
+			for _, v := range arr {
+				converted := convertValue[T](v)
+				result = append(result, converted)
+			}
+			return result
+		}
+
+		// Handle single value to slice conversion
+		converted := convertValue[T](value)
+		if !isZeroValue(converted) {
+			return []T{converted}
+		}
+	}
+	return nil
 }
 
 func (c *ConfigFileTypedWrapper) GetString(path string) string {
@@ -96,107 +414,107 @@ func (c *ConfigFileTypedWrapper) GetString(path string) string {
 }
 
 func (c *ConfigFileTypedWrapper) GetInt(path string) int {
-	return getAs[int](c, path)
+	return getAs[int](c.inner, path)
 }
 
 func (c *ConfigFileTypedWrapper) GetInt64(path string) int64 {
-	return getAs[int64](c, path)
+	return getAs[int64](c.inner, path)
 }
 
 func (c *ConfigFileTypedWrapper) GetInt32(path string) int32 {
-	return getAs[int32](c, path)
+	return getAs[int32](c.inner, path)
 }
 
 func (c *ConfigFileTypedWrapper) GetInt16(path string) int16 {
-	return getAs[int16](c, path)
+	return getAs[int16](c.inner, path)
 }
 
 func (c *ConfigFileTypedWrapper) GetInt8(path string) int8 {
-	return getAs[int8](c, path)
+	return getAs[int8](c.inner, path)
 }
 
 func (c *ConfigFileTypedWrapper) GetUint(path string) uint {
-	return getAs[uint](c, path)
+	return getAs[uint](c.inner, path)
 }
 
 func (c *ConfigFileTypedWrapper) GetBool(path string) bool {
-	return getAs[bool](c, path)
+	return getAs[bool](c.inner, path)
 }
 
 func (c *ConfigFileTypedWrapper) GetUint64(path string) uint64 {
-	return getAs[uint64](c, path)
+	return getAs[uint64](c.inner, path)
 }
 
 func (c *ConfigFileTypedWrapper) GetUint32(path string) uint32 {
-	return getAs[uint32](c, path)
+	return getAs[uint32](c.inner, path)
 }
 
 func (c *ConfigFileTypedWrapper) GetUint16(path string) uint16 {
-	return getAs[uint16](c, path)
+	return getAs[uint16](c.inner, path)
 }
 
 func (c *ConfigFileTypedWrapper) GetUint8(path string) uint8 {
-	return getAs[uint8](c, path)
+	return getAs[uint8](c.inner, path)
 }
 
 func (c *ConfigFileTypedWrapper) GetFloat32(path string) float32 {
-	return getAs[float32](c, path)
+	return getAs[float32](c.inner, path)
 }
 
 func (c *ConfigFileTypedWrapper) GetFloat64(path string) float64 {
-	return getAs[float64](c, path)
+	return getAs[float64](c.inner, path)
 }
 
 func (c *ConfigFileTypedWrapper) GetStringSlice(path string) []string {
-	return getAs[[]string](c, path)
+	return getAsSlice[string](c.inner, path)
 }
 
 func (c *ConfigFileTypedWrapper) GetIntSlice(path string) []int {
-	return getAs[[]int](c, path)
+	return getAsSlice[int](c.inner, path)
 }
 
 func (c *ConfigFileTypedWrapper) GetInt64Slice(path string) []int64 {
-	return getAs[[]int64](c, path)
+	return getAsSlice[int64](c.inner, path)
 }
 
 func (c *ConfigFileTypedWrapper) GetInt32Slice(path string) []int32 {
-	return getAs[[]int32](c, path)
+	return getAsSlice[int32](c.inner, path)
 }
 
 func (c *ConfigFileTypedWrapper) GetInt16Slice(path string) []int16 {
-	return getAs[[]int16](c, path)
+	return getAsSlice[int16](c.inner, path)
 }
 
 func (c *ConfigFileTypedWrapper) GetInt8Slice(path string) []int8 {
-	return getAs[[]int8](c, path)
+	return getAsSlice[int8](c.inner, path)
 }
 
 func (c *ConfigFileTypedWrapper) GetUintSlice(path string) []uint {
-	return getAs[[]uint](c, path)
+	return getAsSlice[uint](c.inner, path)
 }
 
 func (c *ConfigFileTypedWrapper) GetUint64Slice(path string) []uint64 {
-	return getAs[[]uint64](c, path)
+	return getAsSlice[uint64](c.inner, path)
 }
 
 func (c *ConfigFileTypedWrapper) GetUint32Slice(path string) []uint32 {
-	return getAs[[]uint32](c, path)
+	return getAsSlice[uint32](c.inner, path)
 }
 
 func (c *ConfigFileTypedWrapper) GetUint16Slice(path string) []uint16 {
-	return getAs[[]uint16](c, path)
+	return getAsSlice[uint16](c.inner, path)
 }
 
 func (c *ConfigFileTypedWrapper) GetUint8Slice(path string) []uint8 {
-	return getAs[[]uint8](c, path)
+	return getAsSlice[uint8](c.inner, path)
 }
 
 func (c *ConfigFileTypedWrapper) GetFloat32Slice(path string) []float32 {
-	return getAs[[]float32](c, path)
+	return getAsSlice[float32](c.inner, path)
 }
 
 func (c *ConfigFileTypedWrapper) GetFloat64Slice(path string) []float64 {
-	return getAs[[]float64](c, path)
+	return getAsSlice[float64](c.inner, path)
 }
 
 func (c *ConfigFileTypedWrapper) SetString(path string, value string) error {
