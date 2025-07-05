@@ -233,7 +233,7 @@ func (c *Command) processFlags() ([]string, *Command, []*Command, []string, erro
 			if flag.isRequired() {
 				return nil, nil, nil, nil, fmt.Errorf("required flag '%s' not set", flag.getName())
 			}
-		} else if err := flag.validateFlag(c); err != nil {
+		} else if err := flag.validateFlag(matchedCommand); err != nil {
 			return nil, nil, nil, nil, err
 		}
 	}
