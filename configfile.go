@@ -11,6 +11,10 @@ import (
 	"github.com/fsnotify/fsnotify"
 )
 
+var (
+	ConfigFileNotFoundError = fmt.Errorf("configuration file not found")
+)
+
 type ConfigFileSource interface {
 	GetValue(string) (any, bool)            // Get the value from the configuration file at the specified path.
 	GetKeys(string) []string                // Get the keys from the configuration file at the specified path.
@@ -99,7 +103,7 @@ func (c *ConfigFileBase) LoadData() error {
 		if !c.isLoaded {
 			filename := c.searchForConfigFile()
 			if filename == "" {
-				return fmt.Errorf("configuration file not found")
+				return ConfigFileNotFoundError
 			}
 
 			contentBytes, err := os.ReadFile(filename)

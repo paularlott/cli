@@ -188,32 +188,39 @@ func (c *Command) processFlags() ([]string, *Command, []*Command, []string, erro
 	if c.ConfigFile != nil {
 
 		// Ask the config file to load
+		hasConfigFile := true
 		if err := c.ConfigFile.LoadData(); err != nil {
-			return nil, nil, nil, nil, err
+			// No config file is not a fatal error
+			if err != ConfigFileNotFoundError {
+				return nil, nil, nil, nil, err
+			}
+			hasConfigFile = false
 		}
 
-		for _, flag := range combinedFlags {
-			if _, ok := matchedCommand.parsedFlags[flag.getName()]; !ok {
-				cfgPaths := flag.configPaths()
-				if len(cfgPaths) > 0 {
-					for _, path := range cfgPaths {
-						if v, ok := c.ConfigFile.GetValue(path); ok {
-							isSlice := reflect.TypeOf(v).Kind() == reflect.Slice
-							if isSlice == flag.isSlice() {
-								if isSlice {
-									switch vals := v.(type) {
-									case []interface{}:
-										for _, val := range vals {
-											flag.parseString(fmt.Sprintf("%v", val), true, matchedCommand.parsedFlags)
+		if hasConfigFile {
+			for _, flag := range combinedFlags {
+				if _, ok := matchedCommand.parsedFlags[flag.getName()]; !ok {
+					cfgPaths := flag.configPaths()
+					if len(cfgPaths) > 0 {
+						for _, path := range cfgPaths {
+							if v, ok := c.ConfigFile.GetValue(path); ok {
+								isSlice := reflect.TypeOf(v).Kind() == reflect.Slice
+								if isSlice == flag.isSlice() {
+									if isSlice {
+										switch vals := v.(type) {
+										case []interface{}:
+											for _, val := range vals {
+												flag.parseString(fmt.Sprintf("%v", val), true, matchedCommand.parsedFlags)
+											}
+										case []string:
+											for _, val := range vals {
+												flag.parseString(fmt.Sprintf("%v", val), true, matchedCommand.parsedFlags)
+											}
+										default:
 										}
-									case []string:
-										for _, val := range vals {
-											flag.parseString(fmt.Sprintf("%v", val), true, matchedCommand.parsedFlags)
-										}
-									default:
+									} else {
+										flag.parseString(fmt.Sprintf("%v", v), true, matchedCommand.parsedFlags)
 									}
-								} else {
-									flag.parseString(fmt.Sprintf("%v", v), true, matchedCommand.parsedFlags)
 								}
 							}
 						}
