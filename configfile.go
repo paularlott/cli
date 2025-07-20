@@ -19,6 +19,7 @@ type ConfigFileSource interface {
 	Save() error                            // Save the configuration file.
 	OnChange(ConfigFileChangeHandler) error // Track changes to the configuration file.
 	FileUsed() string                       // Get the file used for the configuration.
+	LoadData() error                        // Load the configuration data from the file.
 }
 
 type SearchPathFunc func() []string
@@ -74,8 +75,8 @@ func (c *ConfigFileBase) searchForConfigFile() string {
 			}
 		}
 		for _, candidate := range candidates {
-			_, err := os.Stat(candidate)
-			if err == nil {
+			info, err := os.Stat(candidate)
+			if err == nil && !info.IsDir() {
 				return candidate
 			}
 		}
@@ -97,12 +98,15 @@ func (c *ConfigFileBase) LoadData() error {
 
 			contentBytes, err := os.ReadFile(filename)
 			if err != nil {
+				fmt.Println(err)
 				return err
 			}
 
 			if err := c.Unmarshal(contentBytes, &c.data); err != nil {
+				fmt.Println(err)
 				return err
 			}
+			fmt.Printf("Configuration file loaded: %s\n", filename)
 			c.isLoaded = true
 			c.fileUsed = filename
 		}

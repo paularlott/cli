@@ -624,3 +624,7 @@ func (c *ConfigFileTypedWrapper) SetFloat32Slice(path string, value []float32) e
 func (c *ConfigFileTypedWrapper) SetFloat64Slice(path string, value []float64) error {
 	return c.SetValue(path, value)
 }
+
+func (c *ConfigFileTypedWrapper) LoadData() error {
+	return c.inner.LoadData()
+}

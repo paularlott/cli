@@ -186,6 +186,12 @@ func (c *Command) processFlags() ([]string, *Command, []*Command, []string, erro
 
 	// For flags that are still not set, check if they can be set from a config
 	if c.ConfigFile != nil {
+
+		// Ask the config file to load
+		if err := c.ConfigFile.LoadData(); err != nil {
+			return nil, nil, nil, nil, err
+		}
+
 		for _, flag := range combinedFlags {
 			if _, ok := matchedCommand.parsedFlags[flag.getName()]; !ok {
 				cfgPaths := flag.configPaths()
