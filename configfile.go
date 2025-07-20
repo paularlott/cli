@@ -106,7 +106,7 @@ func (c *ConfigFileBase) LoadData() error {
 				fmt.Println(err)
 				return err
 			}
-			fmt.Printf("Configuration file loaded: %s\n", filename)
+
 			c.isLoaded = true
 			c.fileUsed = filename
 		}
