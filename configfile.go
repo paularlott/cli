@@ -61,6 +61,12 @@ func (c *ConfigFileBase) searchForConfigFile() string {
 
 	fileName := *c.FileName
 
+	// If the filename given is to a file then accept it and don't search for other possible matches
+	if info, err := os.Stat(fileName); !os.IsNotExist(err) && !info.IsDir() {
+		return fileName
+	}
+
+	// Search for the configuration file in the search paths
 	dotFileRegex := regexp.MustCompile(`^\.[^./]`)
 	lookForDotOnly := dotFileRegex.MatchString(fileName)
 
