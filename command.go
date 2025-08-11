@@ -72,6 +72,9 @@ func (c *Command) Execute(ctx context.Context) error {
 	if matchedCommand.MaxArgs != UnlimitedArgs && len(matchedCommand.remainingArgs) > matchedCommand.MaxArgs {
 		return fmt.Errorf("too many arguments")
 	}
+	if matchedCommand.MinArgs > 0 && len(matchedCommand.remainingArgs) < matchedCommand.MinArgs {
+		return fmt.Errorf("too few arguments")
+	}
 
 	// Execute, PreRun, Run, and PostRun
 	var preErr error = nil
