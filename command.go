@@ -243,14 +243,20 @@ func (c *Command) processFlags() ([]string, *Command, []*Command, []string, erro
 		}
 	}
 
-	// Check required flags are present and pass any validation
-	for _, flag := range combinedFlags {
-		if _, ok := matchedCommand.parsedFlags[flag.getName()]; !ok {
-			if flag.isRequired() {
-				return nil, nil, nil, nil, fmt.Errorf("required flag '%s' not set", flag.getName())
+	// Check if we're showing help or version - if so, skip required flag validation
+	showingHelp := !matchedCommand.DisableHelp && matchedCommand.givenFlags["help"]
+	showingVersion := !matchedCommand.DisableVersion && matchedCommand.givenFlags["version"]
+
+	// Check required flags are present and pass any validation (skip if showing help or version)
+	if !showingHelp && !showingVersion {
+		for _, flag := range combinedFlags {
+			if _, ok := matchedCommand.parsedFlags[flag.getName()]; !ok {
+				if flag.isRequired() {
+					return nil, nil, nil, nil, fmt.Errorf("required flag '%s' not set", flag.getName())
+				}
+			} else if err := flag.validateFlag(matchedCommand); err != nil {
+				return nil, nil, nil, nil, err
 			}
-		} else if err := flag.validateFlag(matchedCommand); err != nil {
-			return nil, nil, nil, nil, err
 		}
 	}
 

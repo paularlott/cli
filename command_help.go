@@ -67,7 +67,7 @@ func (c *Command) ShowHelp() {
 		for _, para := range paragraphs {
 			fmt.Printf("   ")
 			c.printWrappedText(strings.TrimSpace(para), 3, 80)
-			fmt.Println("\n")
+			fmt.Print("\n\n")
 		}
 	}
 
