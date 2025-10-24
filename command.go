@@ -141,6 +141,12 @@ func (c *Command) processFlags() ([]string, *Command, []*Command, []string, erro
 		args = args[1:]
 	}
 
+	// Preprocess arguments to reorder flags according to positioning rules
+	args, err := c.preprocessArgs(args)
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+
 	// Match subcommands
 	remainingArgs, matchedCommand, commandSequence, suggestions := c.matchSubcommands(args)
 	matchedCommand.commandChain = commandSequence
@@ -170,9 +176,9 @@ func (c *Command) processFlags() ([]string, *Command, []*Command, []string, erro
 	}
 
 	// Parse the command line flags first
-	remainingArgs, err := matchedCommand.parseFlags(remainingArgs)
-	if err != nil {
-		return nil, nil, nil, nil, err
+	remainingArgs, parseErr := matchedCommand.parseFlags(remainingArgs)
+	if parseErr != nil {
+		return nil, nil, nil, nil, parseErr
 	}
 
 	// Merge the global and command flags
