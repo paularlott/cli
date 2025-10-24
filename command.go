@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"reflect"
+	"strings"
 )
 
 const (
@@ -141,7 +142,7 @@ func (c *Command) processFlags() ([]string, *Command, []*Command, []string, erro
 		args = args[1:]
 	}
 
-	// Match subcommands
+	// Match subcommands and collect flags in a single pass
 	remainingArgs, matchedCommand, commandSequence, suggestions := c.matchSubcommands(args)
 	matchedCommand.commandChain = commandSequence
 
@@ -170,9 +171,9 @@ func (c *Command) processFlags() ([]string, *Command, []*Command, []string, erro
 	}
 
 	// Parse the command line flags first
-	remainingArgs, err := matchedCommand.parseFlags(remainingArgs)
-	if err != nil {
-		return nil, nil, nil, nil, err
+	remainingArgs, parseErr := matchedCommand.parseFlags(remainingArgs)
+	if parseErr != nil {
+		return nil, nil, nil, nil, parseErr
 	}
 
 	// Merge the global and command flags
@@ -264,44 +265,171 @@ func (c *Command) processFlags() ([]string, *Command, []*Command, []string, erro
 }
 
 // matchSubcommands walks through args to find the deepest matching subcommand
+// and separates flags from commands and positional arguments in a single pass
 func (c *Command) matchSubcommands(args []string) ([]string, *Command, []*Command, []string) {
 	current := c
-	remaining := args
 	globalFlags := []Flag{}
 	commandSequence := []*Command{c}
 	var suggestions []string
 
-	for len(remaining) > 0 && len(current.Commands) > 0 {
-		found := false
-		for _, subcmd := range current.Commands {
-			if remaining[0] == subcmd.Name {
-				// Save the global flags or the parent command
-				for _, flag := range current.Flags {
-					if flag.isGlobal() {
-						globalFlags = append(globalFlags, flag)
-					}
-				}
+	// Collections for reordering
+	var flags []string
+	var positionalArgs []string
 
-				// Copy the config file down
-				subcmd.ConfigFile = c.ConfigFile
+	i := 0
+	for i < len(args) {
+		arg := args[i]
 
-				current = subcmd
-				remaining = remaining[1:]
-				found = true
-				commandSequence = append(commandSequence, subcmd)
-				break
-			}
-		}
-		if !found {
-			if len(remaining) > 0 {
-				suggestions = c.findSimilarCommands(remaining[0], current.Commands, 2)
-			}
+		// Check for flag terminator
+		if arg == "--" {
+			// Include -- in positional args so the flag parser knows to stop
+			positionalArgs = append(positionalArgs, args[i:]...)
 			break
 		}
+
+		// Check if it's a flag
+		if strings.HasPrefix(arg, "-") {
+			// Collect the flag and its value (if any)
+			flagWithValue := c.collectFlag(arg, args, &i, current)
+			flags = append(flags, flagWithValue...)
+		} else {
+			// Check if it's a subcommand
+			found := false
+			for _, subcmd := range current.Commands {
+				if arg == subcmd.Name {
+					// Save the global flags from the parent command
+					for _, flag := range current.Flags {
+						if flag.isGlobal() {
+							globalFlags = append(globalFlags, flag)
+						}
+					}
+
+					// Copy the config file down
+					subcmd.ConfigFile = c.ConfigFile
+
+					current = subcmd
+					commandSequence = append(commandSequence, subcmd)
+					found = true
+					break
+				}
+			}
+
+			if !found {
+				// Not a subcommand, so it's a positional argument
+				if len(current.Commands) > 0 {
+					// We expected a subcommand but didn't find one - save for suggestions
+					suggestions = c.findSimilarCommands(arg, current.Commands, 2)
+				}
+				positionalArgs = append(positionalArgs, arg)
+			}
+		}
+
+		i++
 	}
+
+	// Reconstruct remaining args: flags + positional args
+	remaining := make([]string, 0, len(flags)+len(positionalArgs))
+	remaining = append(remaining, flags...)
+	remaining = append(remaining, positionalArgs...)
 
 	current.globalFlags = globalFlags
 	return remaining, current, commandSequence, suggestions
+}
+
+// collectFlag extracts a flag and its value (if needed) and returns them as a slice
+func (c *Command) collectFlag(arg string, args []string, i *int, current *Command) []string {
+	var result []string
+
+	if strings.HasPrefix(arg, "--") {
+		// Long form
+		flagName := arg[2:]
+
+		// Check if it has an inline value (--flag=value)
+		if strings.Contains(flagName, "=") {
+			result = append(result, arg)
+			return result
+		}
+
+		// Flag without inline value
+		result = append(result, arg)
+
+		// Determine if we need to consume next arg as value
+		flagObj := c.lookupFlagInCommand(flagName, current)
+		if flagObj != nil {
+			// Check if it's a bool flag
+			if _, isBool := flagObj.(*BoolFlag); !isBool {
+				// Non-bool flag needs a value
+				if *i+1 < len(args) && !strings.HasPrefix(args[*i+1], "-") && args[*i+1] != "--" {
+					result = append(result, args[*i+1])
+					*i++
+				}
+			}
+		}
+	} else {
+		// Short form (e.g., -f or -abc)
+		flagChars := arg[1:]
+		result = append(result, arg)
+
+		// For bundled short flags, only the last one can have a value
+		if len(flagChars) > 0 {
+			lastChar := string(flagChars[len(flagChars)-1])
+			flagObj := c.lookupFlagInCommand(lastChar, current)
+			if flagObj != nil {
+				if _, isBool := flagObj.(*BoolFlag); !isBool {
+					// Non-bool flag needs a value
+					if *i+1 < len(args) && !strings.HasPrefix(args[*i+1], "-") && args[*i+1] != "--" {
+						result = append(result, args[*i+1])
+						*i++
+					}
+				}
+			}
+		}
+	}
+
+	return result
+}
+
+// lookupFlagInCommand searches for a flag in the current command and its ancestors' global flags
+func (c *Command) lookupFlagInCommand(flagName string, current *Command) Flag {
+	// Check in current command's flags
+	for _, flag := range current.Flags {
+		if flag.getName() == flagName {
+			return flag
+		}
+		for _, alias := range flag.getAliases() {
+			if alias == flagName {
+				return flag
+			}
+		}
+	}
+
+	// Check in global flags from parent commands
+	for _, flag := range current.globalFlags {
+		if flag.getName() == flagName {
+			return flag
+		}
+		for _, alias := range flag.getAliases() {
+			if alias == flagName {
+				return flag
+			}
+		}
+	}
+
+	// Check in root command for global flags
+	for _, flag := range c.Flags {
+		if flag.isGlobal() {
+			if flag.getName() == flagName {
+				return flag
+			}
+			for _, alias := range flag.getAliases() {
+				if alias == flagName {
+					return flag
+				}
+			}
+		}
+	}
+
+	return nil
 }
 
 // Args returns the list of arguments that were passed to the command and have not been consumed by subcommands, flags and arguments
