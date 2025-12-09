@@ -1,0 +1,122 @@
+# Example configuration file demonstrating the ConfigFileTyped getters
+# This file shows how to use GetObjectSlice to access arrays of objects
+
+# Simple configuration values
+timeout = 45
+debug = true
+retry_count = 5
+max_connections = 250
+
+# Array of strings
+api_keys = [
+    "prod-key-abc123def456",
+    "dev-key-xyz789uvw012",
+    "test-key-pqr345stu678"
+]
+
+# Array of objects - API endpoints configuration
+[[endpoints]]
+name = "production"
+url = "https://api.example.com/v1"
+timeout = 30
+retries = 3
+auth_required = true
+rate_limit = 1000
+
+[[endpoints]]
+name = "staging"
+url = "https://staging-api.example.com/v1"
+timeout = 15
+retries = 2
+auth_required = false
+rate_limit = 500
+
+[[endpoints]]
+name = "development"
+url = "http://localhost:8080/v1"
+timeout = 5
+retries = 1
+auth_required = false
+rate_limit = 100
+
+[[endpoints]]
+name = "testing"
+url = "https://test-api.example.com/v1"
+timeout = 60
+retries = 5
+auth_required = true
+rate_limit = 2000
+
+# Server configuration array
+[[servers]]
+host = "api.prod.example.com"
+port = 443
+secure = true
+protocols = ["https", "http2"]
+
+[[servers]]
+host = "api.dev.example.com"
+port = 443
+secure = true
+protocols = ["https", "http2"]
+
+[[servers]]
+host = "localhost"
+port = 8080
+secure = false
+protocols = ["http"]
+
+[[servers]]
+host = "monitoring.internal"
+port = 9090
+secure = true
+protocols = ["https"]
+
+# Service configuration with nested structures
+[service]
+name = "payment-processor"
+version = "2.1.0"
+enabled = true
+
+[service.database]
+host = "db-primary.internal"
+port = 5432
+name = "payments_db"
+pool_size = 20
+timeout = 30
+ssl_mode = "require"
+
+[service.cache]
+type = "redis"
+host = "cache.internal"
+port = 6379
+db = 0
+ttl = 3600
+
+[service.monitoring]
+enabled = true
+metrics_port = 9090
+health_check_interval = 10
+alert_endpoints = ["alerts@example.com", "ops@example.com"]
+
+# Feature flags configuration
+[[features]]
+name = "new_payment_method"
+enabled = true
+percentage = 50
+description = "Enable new cryptocurrency payment options"
+rollout_date = "2024-12-01"
+
+[[features]]
+name = "enhanced_analytics"
+enabled = false
+percentage = 0
+description = "Advanced user analytics dashboard"
+rollout_date = "2025-01-15"
+
+[[features]]
+name = "real_time_notifications"
+enabled = true
+percentage = 100
+description = "Push notifications for all user events"
+rollout_date = "2024-11-01"

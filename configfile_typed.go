@@ -6,6 +6,175 @@ import (
 	"strings"
 )
 
+// mapConfigSource implements ConfigFileSource for a map[string]any
+// This is used as the base for objects returned by GetObject and GetObjectSlice
+type mapConfigSource struct {
+	data     map[string]any
+	readOnly bool
+}
+
+func (m *mapConfigSource) GetValue(path string) (any, bool) {
+	keys := strings.Split(path, ".")
+	current := m.data
+
+	var value any
+	var exists bool
+
+	for i, key := range keys {
+		if i == len(keys)-1 {
+			value, exists = current[key]
+			break
+		}
+		if nextMap, ok := current[key].(map[string]any); ok {
+			current = nextMap
+		} else if nextMap, ok := current[key].(map[string]interface{}); ok {
+			// Convert map[string]interface{} to map[string]any
+			converted := make(map[string]any)
+			for k, v := range nextMap {
+				converted[k] = v
+			}
+			current = converted
+		} else {
+			exists = false
+			break
+		}
+	}
+
+	return value, exists
+}
+
+func (m *mapConfigSource) GetKeys(path string) []string {
+	if path == "" {
+		// Return keys at root level
+		result := make([]string, 0, len(m.data))
+		for k := range m.data {
+			result = append(result, k)
+		}
+		return result
+	}
+
+	// Navigate to the specified path
+	keys := strings.Split(path, ".")
+	current := m.data
+
+	for _, key := range keys[:len(keys)-1] {
+		if nextMap, ok := current[key].(map[string]any); ok {
+			current = nextMap
+		} else if nextMap, ok := current[key].(map[string]interface{}); ok {
+			converted := make(map[string]any)
+			for k, v := range nextMap {
+				converted[k] = v
+			}
+			current = converted
+		} else {
+			return nil
+		}
+	}
+
+	// Return keys at the final level
+	lastKey := keys[len(keys)-1]
+	if objMap, ok := current[lastKey].(map[string]any); ok {
+		result := make([]string, 0, len(objMap))
+		for k := range objMap {
+			result = append(result, k)
+		}
+		return result
+	} else if objMap, ok := current[lastKey].(map[string]interface{}); ok {
+		result := make([]string, 0, len(objMap))
+		for k := range objMap {
+			result = append(result, k)
+		}
+		return result
+	}
+
+	return nil
+}
+
+func (m *mapConfigSource) SetValue(path string, value any) error {
+	if m.readOnly {
+		return fmt.Errorf("mapConfigSource is read-only")
+	}
+
+	keys := strings.Split(path, ".")
+	current := m.data
+
+	for i, key := range keys {
+		if i == len(keys)-1 {
+			current[key] = value
+			return nil
+		}
+		if nextMap, ok := current[key].(map[string]any); ok {
+			current = nextMap
+		} else if nextMap, ok := current[key].(map[string]interface{}); ok {
+			converted := make(map[string]any)
+			for k, v := range nextMap {
+				converted[k] = v
+			}
+			current[key] = converted
+			current = converted
+		} else {
+			// Create new nested map
+			newMap := make(map[string]any)
+			current[key] = newMap
+			current = newMap
+		}
+	}
+
+	return nil
+}
+
+func (m *mapConfigSource) DeleteKey(path string) error {
+	if m.readOnly {
+		return fmt.Errorf("mapConfigSource is read-only")
+	}
+
+	keys := strings.Split(path, ".")
+	current := m.data
+
+	for i, key := range keys {
+		if i == len(keys)-1 {
+			delete(current, key)
+			return nil
+		}
+		if nextMap, ok := current[key].(map[string]any); ok {
+			current = nextMap
+		} else if nextMap, ok := current[key].(map[string]interface{}); ok {
+			converted := make(map[string]any)
+			for k, v := range nextMap {
+				converted[k] = v
+			}
+			current[key] = converted
+			current = converted
+		} else {
+			return nil
+		}
+	}
+
+	return nil
+}
+
+func (m *mapConfigSource) Save() error {
+	if m.readOnly {
+		return fmt.Errorf("mapConfigSource is read-only")
+	}
+	return nil
+}
+
+func (m *mapConfigSource) OnChange(h ConfigFileChangeHandler) error {
+	if m.readOnly {
+		return fmt.Errorf("mapConfigSource is read-only")
+	}
+	return nil
+}
+
+func (m *mapConfigSource) FileUsed() string {
+	return "[map source]"
+}
+
+func (m *mapConfigSource) LoadData() error {
+	return nil // Data is already loaded
+}
+
 type ConfigFileTyped interface {
 	ConfigFileSource
 
@@ -63,6 +232,14 @@ type ConfigFileTyped interface {
 	SetUint8Slice(string, []uint8) error     // Set the uint8 slice value in the configuration file at the specified path.
 	SetFloat32Slice(string, []float32) error // Set the float32 slice value in the configuration file at the specified path.
 	SetFloat64Slice(string, []float64) error // Set the float64 slice value in the configuration file at the specified path.
+
+	// Object getters
+	GetObjectSlice(string) []ConfigFileTyped   // Get a slice of objects from the configuration file at the specified path.
+	GetObject(string) ConfigFileTyped         // Get a single object from the configuration file at the specified path.
+
+	// Object setters
+	SetObjectSlice(string, []ConfigFileTyped) error   // Set a slice of objects in the configuration file at the specified path.
+	SetObject(string, ConfigFileTyped) error         // Set an object in the configuration file at the specified path.
 }
 
 type ConfigFileTypedWrapper struct {
@@ -75,6 +252,19 @@ func NewTypedConfigFile(inner ConfigFileSource) *ConfigFileTypedWrapper {
 	return &ConfigFileTypedWrapper{
 		inner: inner,
 	}
+}
+
+// NewTypedConfigObject creates a new empty ConfigFileTyped instance that can be used for setting objects
+// This returns a ConfigFileTyped wrapped around an empty map that you can populate and then set
+func NewTypedConfigObject() ConfigFileTyped {
+	mapSource := &mapConfigSource{data: make(map[string]any), readOnly: false}
+	return &ConfigFileTypedWrapper{inner: mapSource}
+}
+
+// NewTypedConfigObjectWithData creates a new ConfigFileTyped instance from a map[string]any
+func NewTypedConfigObjectWithData(data map[string]any) ConfigFileTyped {
+	mapSource := &mapConfigSource{data: data, readOnly: false}
+	return &ConfigFileTypedWrapper{inner: mapSource}
 }
 
 func (w *ConfigFileTypedWrapper) GetValue(path string) (any, bool)  { return w.inner.GetValue(path) }
@@ -627,4 +817,116 @@ func (c *ConfigFileTypedWrapper) SetFloat64Slice(path string, value []float64) e
 
 func (c *ConfigFileTypedWrapper) LoadData() error {
 	return c.inner.LoadData()
+}
+
+func (c *ConfigFileTypedWrapper) GetObject(path string) ConfigFileTyped {
+	if v, ok := c.inner.GetValue(path); ok {
+		if objMap, ok := v.(map[string]any); ok {
+			mapSource := &mapConfigSource{data: objMap, readOnly: true}
+			return &ConfigFileTypedWrapper{inner: mapSource}
+		} else if objMap, ok := v.(map[string]interface{}); ok {
+			// Convert map[string]interface{} to map[string]any
+			converted := make(map[string]any)
+			for k, v := range objMap {
+				converted[k] = v
+			}
+			mapSource := &mapConfigSource{data: converted, readOnly: true}
+			return &ConfigFileTypedWrapper{inner: mapSource}
+		}
+	}
+	return nil
+}
+
+func (c *ConfigFileTypedWrapper) GetObjectSlice(path string) []ConfigFileTyped {
+	if v, ok := c.inner.GetValue(path); ok {
+		// Handle []any (JSON style)
+		if slice, ok := v.([]any); ok {
+			objects := make([]ConfigFileTyped, 0, len(slice))
+			for _, item := range slice {
+				if objMap, ok := item.(map[string]any); ok {
+					mapSource := &mapConfigSource{data: objMap, readOnly: true}
+					objects = append(objects, &ConfigFileTypedWrapper{inner: mapSource})
+				} else if objMap, ok := item.(map[string]interface{}); ok {
+					// Convert map[string]interface{} to map[string]any
+					converted := make(map[string]any)
+					for k, v := range objMap {
+						converted[k] = v
+					}
+					mapSource := &mapConfigSource{data: converted, readOnly: true}
+					objects = append(objects, &ConfigFileTypedWrapper{inner: mapSource})
+				}
+			}
+			return objects
+		}
+		// Handle []map[string]interface{} (TOML style)
+		if slice, ok := v.([]map[string]interface{}); ok {
+			objects := make([]ConfigFileTyped, 0, len(slice))
+			for _, item := range slice {
+				// Convert map[string]interface{} to map[string]any
+				converted := make(map[string]any)
+				for k, v := range item {
+					converted[k] = v
+				}
+				mapSource := &mapConfigSource{data: converted, readOnly: true}
+				objects = append(objects, &ConfigFileTypedWrapper{inner: mapSource})
+			}
+			return objects
+		}
+	}
+	return nil
+}
+
+// SetObject sets an object at the specified path.
+// The object parameter should be a ConfigFileTyped instance that contains the data to set.
+func (c *ConfigFileTypedWrapper) SetObject(path string, obj ConfigFileTyped) error {
+	if obj == nil {
+		// If nil is passed, delete the key
+		return c.DeleteKey(path)
+	}
+
+	// Extract the data from the object
+	// If it's a ConfigFileTypedWrapper, try to get the underlying data
+	if wrapper, ok := obj.(*ConfigFileTypedWrapper); ok {
+		// Check if the inner source is a mapConfigSource
+		if mapSrc, ok := wrapper.inner.(*mapConfigSource); ok {
+			return c.SetValue(path, mapSrc.data)
+		}
+
+		// For other ConfigFileSource implementations, serialize to map
+		// This is a simplified approach - in practice you might want to handle this differently
+		return fmt.Errorf("SetObject only supports ConfigFileTypedWrapper with mapConfigSource backing")
+	}
+
+	return fmt.Errorf("invalid object type for SetObject")
+}
+
+// SetObjectSlice sets a slice of objects at the specified path.
+func (c *ConfigFileTypedWrapper) SetObjectSlice(path string, objects []ConfigFileTyped) error {
+	if objects == nil {
+		// If nil is passed, delete the key
+		return c.DeleteKey(path)
+	}
+
+	// Convert ConfigFileTyped objects to []map[string]any
+	result := make([]map[string]any, 0, len(objects))
+	for _, obj := range objects {
+		if obj == nil {
+			continue
+		}
+
+		if wrapper, ok := obj.(*ConfigFileTypedWrapper); ok {
+			// Check if the inner source is a mapConfigSource
+			if mapSrc, ok := wrapper.inner.(*mapConfigSource); ok {
+				result = append(result, mapSrc.data)
+			} else {
+				// For other sources, we would need to extract all values
+				// This is a simplified approach
+				return fmt.Errorf("SetObjectSlice only supports ConfigFileTypedWrapper with mapConfigSource backing")
+			}
+		} else {
+			return fmt.Errorf("invalid object type in slice for SetObjectSlice")
+		}
+	}
+
+	return c.SetValue(path, result)
 }
