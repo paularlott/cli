@@ -7,13 +7,13 @@ import (
 	"os"
 
 	"github.com/paularlott/cli"
-	cli_env "github.com/paularlott/cli/env"
+	"github.com/paularlott/cli/env"
 )
 
 func main() {
 	// Load .env file BEFORE executing the command
 	// This sets environment variables that can be accessed by the CLI
-	if err := cli_env.Load(); err != nil {
+	if err := env.Load(); err != nil {
 		// .env file is optional - log but don't fail if it doesn't exist
 		log.Printf("Note: .env file not found or could not be loaded: %v", err)
 	}

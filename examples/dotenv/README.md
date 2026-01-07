@@ -14,11 +14,13 @@ This example demonstrates how to use the `github.com/paularlott/cli/env` package
 ## Usage
 
 1. Copy `.env.example` to `.env`:
+
    ```bash
    cp .env.example .env
    ```
 
 2. Edit `.env` with your configuration:
+
    ```bash
    # .env file
    APP_NAME=myapp
@@ -131,7 +133,7 @@ You can load multiple `.env` files in order:
 
 ```go
 // Load multiple files (later files override earlier ones)
-if err := cli_env.Load(".env.local", ".env"); err != nil {
+if err := env.Load(".env.local", ".env"); err != nil {
     log.Fatal(err)
 }
 ```
@@ -142,7 +144,7 @@ Calling `Load()` with no arguments defaults to loading `.env` from the current d
 
 ```go
 // Equivalent to Load(".env")
-if err := cli_env.Load(); err != nil {
+if err := env.Load(); err != nil {
     log.Fatal(err)
 }
 ```
@@ -152,7 +154,7 @@ if err := cli_env.Load(); err != nil {
 The `.env` file is optional in this example. If the file doesn't exist, the application continues with defaults:
 
 ```go
-if err := cli_env.Load(); err != nil {
+if err := env.Load(); err != nil {
     // Log but don't fail - .env is optional
     log.Printf("Note: .env file not found: %v", err)
 }
@@ -161,7 +163,7 @@ if err := cli_env.Load(); err != nil {
 If you want to require the `.env` file:
 
 ```go
-if err := cli_env.Load(); err != nil {
+if err := env.Load(); err != nil {
     log.Fatalf("Failed to load .env file: %v", err)
 }
 ```
