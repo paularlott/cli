@@ -11,6 +11,7 @@ This library was developed to address the need for creating CLI applications wit
 - Flags including global flags
 - Configuration file support (TOML and JSON)
 - Environment variable support
+- **.env file support** - Load environment variables from .env files with variable expansion
 - Built-in help and version commands
 - Optional suggestions when command not found
 - Automatic help generation
@@ -67,6 +68,79 @@ func main() {
 	os.Exit(0)
 }
 ```
+
+## .env File Support
+
+The package includes a sub-package for loading `.env` files. This allows you to define environment variables in a file and have them automatically loaded into your application.
+
+### Installation
+
+```bash
+go get github.com/paularlott/cli/env
+```
+
+### Quick Start
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "os"
+
+    "github.com/paularlott/cli"
+    "github.com/paularlott/cli/env"
+)
+
+func main() {
+    // Load .env file BEFORE executing the command
+    if err := env.Load(); err != nil {
+        fmt.Printf("Warning: .env file not found: %v\n", err)
+    }
+
+    cmd := &cli.Command{
+        Name:  "myapp",
+        Flags: []cli.Flag{
+            &cli.StringFlag{
+                Name:    "database-url",
+                EnvVars: []string{"DATABASE_URL"}, // Read from environment
+            },
+        },
+        Run: func(ctx context.Context, cmd *cli.Command) error {
+            dbURL := cmd.GetString("database-url")
+            fmt.Println("Database URL:", dbURL)
+            return nil
+        },
+    }
+
+    cmd.Execute(context.Background())
+}
+```
+
+### .env File Example
+
+```bash
+# .env file
+DATABASE_URL=postgresql://user:pass@localhost:5432/mydb
+API_KEY=secret-key
+DEBUG=true
+
+# Variable expansion
+BASE_DIR=/usr/local
+LOG_PATH=${BASE_DIR}/logs
+```
+
+### Features
+
+- **Variable Expansion**: Use `${VAR}` or `$VAR` syntax to reference other environment variables
+- **Comments**: Full-line (`# comment`) and inline (`KEY=value # comment`) comments supported
+- **Quoted Values**: Both single and double quotes with escape sequence support
+- **Whitespace Handling**: Spaces around the `=` sign are permitted
+- **Multiple Files**: Load multiple `.env` files in order
+- **No Dependencies**: Uses only Go standard library
+
+For more details, see the [dotenv example](examples/dotenv/) or the [env package documentation](env/).
 
 ## Help Command
 
