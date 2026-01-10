@@ -416,3 +416,229 @@ func TestCommand_GlobalFlags(t *testing.T) {
 		t.Fatalf("expected no error, got %v", err)
 	}
 }
+
+func TestCommand_Execute_UnknownSubcommand(t *testing.T) {
+	tests := []struct {
+		name       string
+		cmd        *Command
+		args       []string
+		wantErr    bool
+		errContains string
+	}{
+		{
+			name: "unknown subcommand returns error",
+			cmd: &Command{
+				Name: "parent",
+				Commands: []*Command{
+					{Name: "child1", Run: func(ctx context.Context, cmd *Command) error { return nil }},
+					{Name: "child2", Run: func(ctx context.Context, cmd *Command) error { return nil }},
+				},
+			},
+			args:       []string{"parent", "unknown"},
+			wantErr:    true,
+			errContains: "unknown command",
+		},
+		{
+			name: "valid subcommand with MaxArgs=0 works",
+			cmd: &Command{
+				Name: "parent",
+				Commands: []*Command{
+					{
+						Name:    "child",
+						MaxArgs: 0,
+						Run:     func(ctx context.Context, cmd *Command) error { return nil },
+					},
+				},
+			},
+			args:    []string{"parent", "child"},
+			wantErr: false,
+		},
+		{
+			name: "command with subcommands but no args shows help",
+			cmd: &Command{
+				Name: "parent",
+				Commands: []*Command{
+					{Name: "child", Run: func(ctx context.Context, cmd *Command) error { return nil }},
+				},
+			},
+			args:       []string{"parent"},
+			wantErr:    false, // Shows help instead of error
+		},
+		{
+			name: "command without subcommands validates MaxArgs",
+			cmd: &Command{
+				Name:     "parent",
+				MaxArgs:  0,
+				Run:      func(ctx context.Context, cmd *Command) error { return nil },
+			},
+			args:       []string{"parent", "extra"},
+			wantErr:    true,
+			errContains: "too many arguments",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			os.Args = tt.args
+			err := tt.cmd.Execute(context.Background())
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("expected error=%v, got %v", tt.wantErr, err)
+			}
+			if tt.errContains != "" && err != nil {
+				if err.Error() != tt.errContains {
+					t.Fatalf("expected error containing %q, got %q", tt.errContains, err.Error())
+				}
+			}
+		})
+	}
+}
+
+func TestCommand_Execute_MinMaxArgs_EdgeCases(t *testing.T) {
+	tests := []struct {
+		name       string
+		cmd        *Command
+		args       []string
+		wantErr    bool
+		errContains string
+	}{
+		{
+			name: "MinArgs=1 no args given",
+			cmd: &Command{
+				Name:     "test",
+				MinArgs:  1,
+				Run:      func(ctx context.Context, cmd *Command) error { return nil },
+			},
+			args:       []string{"test"},
+			wantErr:    true,
+			errContains: "too few arguments",
+		},
+		{
+			name: "MinArgs=2 MaxArgs=3 with exactly 2 args",
+			cmd: &Command{
+				Name:     "test",
+				MinArgs:  2,
+				MaxArgs:  3,
+				Run:      func(ctx context.Context, cmd *Command) error { return nil },
+			},
+			args:    []string{"test", "arg1", "arg2"},
+			wantErr: false,
+		},
+		{
+			name: "MinArgs=2 MaxArgs=3 with exactly 3 args",
+			cmd: &Command{
+				Name:     "test",
+				MinArgs:  2,
+				MaxArgs:  3,
+				Run:      func(ctx context.Context, cmd *Command) error { return nil },
+			},
+			args:    []string{"test", "arg1", "arg2", "arg3"},
+			wantErr: false,
+		},
+		{
+			name: "MinArgs=1 with 0 args but has subcommands",
+			cmd: &Command{
+				Name: "parent",
+				MinArgs: 1,
+				Commands: []*Command{
+					{Name: "child", Run: func(ctx context.Context, cmd *Command) error { return nil }},
+				},
+			},
+			args:    []string{"parent"},
+			wantErr: false, // Shows help instead of error
+		},
+		{
+			name: "MinArgs=1 with unknown subcommand",
+			cmd: &Command{
+				Name: "parent",
+				MinArgs: 1,
+				Commands: []*Command{
+					{Name: "child", Run: func(ctx context.Context, cmd *Command) error { return nil }},
+				},
+			},
+			args:       []string{"parent", "unknown"},
+			wantErr:    true,
+			errContains: "unknown command",
+		},
+		{
+			name: "MinArgs=0 MaxArgs=0 with no args",
+			cmd: &Command{
+				Name:     "test",
+				MinArgs:  0,
+				MaxArgs:  0,
+				Run:      func(ctx context.Context, cmd *Command) error { return nil },
+			},
+			args:    []string{"test"},
+			wantErr: false,
+		},
+		{
+			name: "MinArgs=0 MaxArgs=1 with 1 arg",
+			cmd: &Command{
+				Name:     "test",
+				MinArgs:  0,
+				MaxArgs:  1,
+				Run:      func(ctx context.Context, cmd *Command) error { return nil },
+			},
+			args:    []string{"test", "arg1"},
+			wantErr: false,
+		},
+		{
+			name: "MinArgs=0 MaxArgs=1 with 2 args",
+			cmd: &Command{
+				Name:     "test",
+				MinArgs:  0,
+				MaxArgs:  1,
+				Run:      func(ctx context.Context, cmd *Command) error { return nil },
+			},
+			args:       []string{"test", "arg1", "arg2"},
+			wantErr:    true,
+			errContains: "too many arguments",
+		},
+		{
+			name: "command with subcommands and valid subcommand call",
+			cmd: &Command{
+				Name: "parent",
+				Commands: []*Command{
+					{
+						Name:     "child",
+						MinArgs:  1,
+						MaxArgs:  UnlimitedArgs,
+						Run:      func(ctx context.Context, cmd *Command) error { return nil },
+					},
+				},
+			},
+			args:    []string{"parent", "child", "arg1"},
+			wantErr: false,
+		},
+		{
+			name: "command with subcommands and subcommand with too few args",
+			cmd: &Command{
+				Name: "parent",
+				Commands: []*Command{
+					{
+						Name:    "child",
+						MinArgs: 1,
+						Run:     func(ctx context.Context, cmd *Command) error { return nil },
+					},
+				},
+			},
+			args:       []string{"parent", "child"},
+			wantErr:    true,
+			errContains: "too few arguments",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			os.Args = tt.args
+			err := tt.cmd.Execute(context.Background())
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("expected error=%v, got %v", tt.wantErr, err)
+			}
+			if tt.errContains != "" && err != nil {
+				if err.Error() != tt.errContains {
+					t.Fatalf("expected error containing %q, got %q", tt.errContains, err.Error())
+				}
+			}
+		})
+	}
+}

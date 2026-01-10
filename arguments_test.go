@@ -265,3 +265,169 @@ func TestHasArg(t *testing.T) {
 		t.Fatalf("expected no error, got %v", err)
 	}
 }
+
+func TestArgumentsWithSubcommands_EdgeCases(t *testing.T) {
+	tests := []struct {
+		name       string
+		cmd        *Command
+		args       []string
+		wantErr    bool
+		errContains string
+	}{
+		{
+			name: "parent with arguments and unknown subcommand",
+			cmd: &Command{
+				Name: "parent",
+				Arguments: []Argument{
+					&StringArg{Name: "arg1", Required: true},
+				},
+				Commands: []*Command{
+					{Name: "child", Run: func(ctx context.Context, cmd *Command) error { return nil }},
+				},
+			},
+			args:       []string{"parent", "unknown"},
+			wantErr:    true,
+			errContains: "unknown command",
+		},
+		{
+			name: "parent with arguments, valid subcommand call",
+			cmd: &Command{
+				Name: "parent",
+				Commands: []*Command{
+					{
+						Name: "child",
+						Arguments: []Argument{
+							&StringArg{Name: "childarg", Required: true},
+						},
+						Run: func(ctx context.Context, cmd *Command) error { return nil },
+					},
+				},
+			},
+			args:    []string{"parent", "child", "value"},
+			wantErr: false,
+		},
+		{
+			name: "parent with arguments, subcommand missing required arg",
+			cmd: &Command{
+				Name: "parent",
+				Commands: []*Command{
+					{
+						Name: "child",
+						Arguments: []Argument{
+							&StringArg{Name: "childarg", Required: true},
+						},
+						Run: func(ctx context.Context, cmd *Command) error { return nil },
+					},
+				},
+			},
+			args:       []string{"parent", "child"},
+			wantErr:    true,
+			errContains: "required",
+		},
+		{
+			name: "parent with MinArgs and arguments, unknown subcommand",
+			cmd: &Command{
+				Name:    "parent",
+				MinArgs: 1,
+				Arguments: []Argument{
+					&StringArg{Name: "arg1", Required: true},
+				},
+				Commands: []*Command{
+					{Name: "child", Run: func(ctx context.Context, cmd *Command) error { return nil }},
+				},
+			},
+			args:       []string{"parent", "unknown"},
+			wantErr:    true,
+			errContains: "unknown command",
+		},
+		{
+			name: "parent with required arguments and no args (has subcommands)",
+			cmd: &Command{
+				Name: "parent",
+				Arguments: []Argument{
+					&StringArg{Name: "arg1", Required: true},
+				},
+				Commands: []*Command{
+					{Name: "child", Run: func(ctx context.Context, cmd *Command) error { return nil }},
+				},
+			},
+			args:       []string{"parent"},
+			wantErr:    true,
+			errContains: "missing required argument",
+		},
+		{
+			name: "parent with optional arguments and valid subcommand",
+			cmd: &Command{
+				Name: "parent",
+				Arguments: []Argument{
+					&StringArg{Name: "arg1", Required: false},
+				},
+				Commands: []*Command{
+					{
+						Name: "child",
+						Run:  func(ctx context.Context, cmd *Command) error { return nil },
+					},
+				},
+			},
+			args:    []string{"parent", "child"},
+			wantErr: false,
+		},
+		{
+			name: "nested subcommands with arguments at different levels",
+			cmd: &Command{
+				Name: "parent",
+				Commands: []*Command{
+					{
+						Name: "child",
+						Commands: []*Command{
+							{
+								Name: "grandchild",
+								Arguments: []Argument{
+									&StringArg{Name: "garg", Required: true},
+								},
+								Run: func(ctx context.Context, cmd *Command) error { return nil },
+							},
+						},
+					},
+				},
+			},
+			args:    []string{"parent", "child", "grandchild", "value"},
+			wantErr: false,
+		},
+		{
+			name: "parent with MaxArgs and arguments, unknown subcommand",
+			cmd: &Command{
+				Name:    "parent",
+				MaxArgs: 0,
+				Arguments: []Argument{
+					&StringArg{Name: "arg1", Required: false},
+				},
+				Commands: []*Command{
+					{Name: "child", Run: func(ctx context.Context, cmd *Command) error { return nil }},
+				},
+			},
+			args:       []string{"parent", "unknown"},
+			wantErr:    true,
+			errContains: "unknown command",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			os.Args = tt.args
+			err := tt.cmd.Execute(context.Background())
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("expected error=%v, got %v", tt.wantErr, err)
+			}
+			if tt.errContains != "" && err != nil {
+				if err.Error() != tt.errContains && !contains(err.Error(), tt.errContains) {
+					t.Fatalf("expected error containing %q, got %q", tt.errContains, err.Error())
+				}
+			}
+		})
+	}
+}
+
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || len(substr) == 0 || len(s) > 0 && (s[0:len(substr)] == substr || contains(s[1:], substr)))
+}

@@ -70,11 +70,14 @@ func (c *Command) Execute(ctx context.Context) error {
 	}
 
 	// Check the limits on the number of unnamed arguments
-	if matchedCommand.MaxArgs != UnlimitedArgs && len(matchedCommand.remainingArgs) > matchedCommand.MaxArgs {
-		return fmt.Errorf("too many arguments")
-	}
-	if matchedCommand.MinArgs > 0 && len(matchedCommand.remainingArgs) < matchedCommand.MinArgs {
-		return fmt.Errorf("too few arguments")
+	// Skip this check if the command has subcommands, as the remaining args might be intended for a subcommand
+	if len(matchedCommand.Commands) == 0 {
+		if matchedCommand.MaxArgs != UnlimitedArgs && len(matchedCommand.remainingArgs) > matchedCommand.MaxArgs {
+			return fmt.Errorf("too many arguments")
+		}
+		if matchedCommand.MinArgs > 0 && len(matchedCommand.remainingArgs) < matchedCommand.MinArgs {
+			return fmt.Errorf("too few arguments")
+		}
 	}
 
 	// Execute, PreRun, Run, and PostRun
@@ -104,7 +107,10 @@ func (c *Command) Execute(ctx context.Context) error {
 				}
 			}
 
-			if len(suggestions) == 0 && !matchedCommand.DisableHelp {
+			// If we have remaining args and the command has subcommands, it's an unknown subcommand
+			if len(matchedCommand.Commands) > 0 && len(remainingArgs) > 0 {
+				runErr = fmt.Errorf("unknown command")
+			} else if len(suggestions) == 0 && !matchedCommand.DisableHelp {
 				matchedCommand.ShowHelp()
 			} else {
 				if len(remainingArgs) > 0 {
