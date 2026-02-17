@@ -2,76 +2,52 @@ package cli
 
 import (
 	"fmt"
-	"strings"
+
+	"github.com/paularlott/cli/fuzzy"
 )
 
-// levenshteinDistance calculates the minimum number of single-character edits
-// (insertions, deletions, or substitutions) required to change one string into another
-func (c *Command) levenshteinDistance(s1, s2 string) int {
-	// Convert strings to lowercase for case-insensitive comparison
-	s1, s2 = strings.ToLower(s1), strings.ToLower(s2)
-
-	if len(s1) == 0 {
-		return len(s2)
-	}
-	if len(s2) == 0 {
-		return len(s1)
-	}
-
-	// Create a 2D slice to store the Levenshtein distances
-	matrix := make([][]int, len(s1)+1)
-	for i := range matrix {
-		matrix[i] = make([]int, len(s2)+1)
-	}
-
-	// Initialize the first row and column
-	for i := 0; i <= len(s1); i++ {
-		matrix[i][0] = i
-	}
-	for j := 0; j <= len(s2); j++ {
-		matrix[0][j] = j
-	}
-
-	// Fill in the matrix
-	for i := 1; i <= len(s1); i++ {
-		for j := 1; j <= len(s2); j++ {
-			cost := 1
-			if s1[i-1] == s2[j-1] {
-				cost = 0
-			}
-			matrix[i][j] = min(
-				matrix[i-1][j]+1,      // deletion
-				matrix[i][j-1]+1,      // insertion
-				matrix[i-1][j-1]+cost, // substitution
-			)
-		}
-	}
-
-	return matrix[len(s1)][len(s2)]
+// commandItem wraps Command to implement fuzzy.NamedItem
+type commandItem struct {
+	cmd *Command
 }
 
-// min returns the minimum of three integers
-func min(a, b, c int) int {
-	if a < b {
-		if a < c {
-			return a
-		}
-		return c
-	}
-	if b < c {
-		return b
-	}
-	return c
-}
+func (c commandItem) GetID() int    { return 0 } // ID not needed for command suggestions
+func (c commandItem) GetName() string { return c.cmd.Name }
 
-// FindSimilarCommands finds commands that are similar to the given command
+// findSimilarCommands finds commands that are similar to the given command name
 func (c *Command) findSimilarCommands(cmdName string, commands []*Command, maxDistance int) []string {
-	suggestions := make([]string, 0)
+	// Convert commands to fuzzy items
+	items := make([]fuzzy.NamedItem, len(commands))
+	for i, cmd := range commands {
+		items[i] = commandItem{cmd: cmd}
+	}
 
-	for _, cmd := range commands {
-		distance := c.levenshteinDistance(cmdName, cmd.Name)
-		if distance <= maxDistance && distance > 0 {
-			suggestions = append(suggestions, cmd.Name)
+	// Use fuzzy search with threshold based on maxDistance
+	// Convert maxDistance to a threshold (normalized)
+	// A maxDistance of 2-3 is typical for command suggestions
+	threshold := 0.5
+	if maxDistance > 0 && len(cmdName) > 0 {
+		// Calculate threshold: if maxDistance is 2 and name length is 5,
+		// that means 40% difference is acceptable, so threshold is 0.6
+		threshold = 1.0 - (float64(maxDistance) / float64(len(cmdName)))
+		if threshold < 0.3 {
+			threshold = 0.3 // Minimum threshold
+		}
+	}
+
+	opts := fuzzy.Options{
+		MaxResults: 5,
+		Threshold:  threshold,
+	}
+
+	results := fuzzy.Search(cmdName, items, opts)
+
+	// Extract command names
+	suggestions := make([]string, 0, len(results))
+	for _, r := range results {
+		// Don't include exact matches (distance 0)
+		if r.Score < 1.0 {
+			suggestions = append(suggestions, r.Name)
 		}
 	}
 

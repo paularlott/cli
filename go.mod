@@ -1,10 +1,10 @@
 module github.com/paularlott/cli
 
-go 1.25.3
+go 1.26.0
 
 require (
-	github.com/BurntSushi/toml v1.5.0
+	github.com/BurntSushi/toml v1.6.0
 	github.com/fsnotify/fsnotify v1.9.0
 )
 
-require golang.org/x/sys v0.37.0 // indirect
+require golang.org/x/sys v0.41.0 // indirect
