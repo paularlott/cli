@@ -189,6 +189,19 @@ t.SetStatusRight("v1.2.3")
 t.ClearOutput() // remove all messages from the output region
 ```
 
+## Styled Text
+
+`Styled` wraps a string in a theme color for use in message content:
+
+```go
+t.AddMessage(tui.RoleSystem,
+    tui.Styled(t.Theme().Text, "myapp") + "\n" +
+    tui.Styled(t.Theme().Primary, "v1.2.3"),
+)
+```
+
+`t.Theme()` returns the active theme so you can reference its color fields (`Primary`, `Secondary`, `Text`, `Dim`, `Error`, etc.) at call time, picking up any theme changes automatically.
+
 ## Menus
 
 `t.OpenMenu(m)` replaces the input box with a navigable bordered panel. `t.CloseMenu()` dismisses it programmatically.
