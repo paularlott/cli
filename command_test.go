@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"os"
+	"strings"
 	"testing"
 )
 
@@ -485,7 +486,7 @@ func TestCommand_Execute_UnknownSubcommand(t *testing.T) {
 				t.Fatalf("expected error=%v, got %v", tt.wantErr, err)
 			}
 			if tt.errContains != "" && err != nil {
-				if err.Error() != tt.errContains {
+				if !strings.Contains(err.Error(), tt.errContains) {
 					t.Fatalf("expected error containing %q, got %q", tt.errContains, err.Error())
 				}
 			}
@@ -635,7 +636,7 @@ func TestCommand_Execute_MinMaxArgs_EdgeCases(t *testing.T) {
 				t.Fatalf("expected error=%v, got %v", tt.wantErr, err)
 			}
 			if tt.errContains != "" && err != nil {
-				if err.Error() != tt.errContains {
+				if !strings.Contains(err.Error(), tt.errContains) {
 					t.Fatalf("expected error containing %q, got %q", tt.errContains, err.Error())
 				}
 			}

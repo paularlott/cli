@@ -108,12 +108,10 @@ func (c *ConfigFileBase) LoadData() error {
 
 			contentBytes, err := os.ReadFile(filename)
 			if err != nil {
-				fmt.Println(err)
 				return err
 			}
 
 			if err := c.Unmarshal(contentBytes, &c.data); err != nil {
-				fmt.Println(err)
 				return err
 			}
 

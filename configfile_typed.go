@@ -27,13 +27,6 @@ func (m *mapConfigSource) GetValue(path string) (any, bool) {
 		}
 		if nextMap, ok := current[key].(map[string]any); ok {
 			current = nextMap
-		} else if nextMap, ok := current[key].(map[string]interface{}); ok {
-			// Convert map[string]interface{} to map[string]any
-			converted := make(map[string]any)
-			for k, v := range nextMap {
-				converted[k] = v
-			}
-			current = converted
 		} else {
 			exists = false
 			break
@@ -45,7 +38,6 @@ func (m *mapConfigSource) GetValue(path string) (any, bool) {
 
 func (m *mapConfigSource) GetKeys(path string) []string {
 	if path == "" {
-		// Return keys at root level
 		result := make([]string, 0, len(m.data))
 		for k := range m.data {
 			result = append(result, k)
@@ -53,33 +45,19 @@ func (m *mapConfigSource) GetKeys(path string) []string {
 		return result
 	}
 
-	// Navigate to the specified path
 	keys := strings.Split(path, ".")
 	current := m.data
 
 	for _, key := range keys[:len(keys)-1] {
 		if nextMap, ok := current[key].(map[string]any); ok {
 			current = nextMap
-		} else if nextMap, ok := current[key].(map[string]interface{}); ok {
-			converted := make(map[string]any)
-			for k, v := range nextMap {
-				converted[k] = v
-			}
-			current = converted
 		} else {
 			return nil
 		}
 	}
 
-	// Return keys at the final level
 	lastKey := keys[len(keys)-1]
 	if objMap, ok := current[lastKey].(map[string]any); ok {
-		result := make([]string, 0, len(objMap))
-		for k := range objMap {
-			result = append(result, k)
-		}
-		return result
-	} else if objMap, ok := current[lastKey].(map[string]interface{}); ok {
 		result := make([]string, 0, len(objMap))
 		for k := range objMap {
 			result = append(result, k)
@@ -105,15 +83,7 @@ func (m *mapConfigSource) SetValue(path string, value any) error {
 		}
 		if nextMap, ok := current[key].(map[string]any); ok {
 			current = nextMap
-		} else if nextMap, ok := current[key].(map[string]interface{}); ok {
-			converted := make(map[string]any)
-			for k, v := range nextMap {
-				converted[k] = v
-			}
-			current[key] = converted
-			current = converted
 		} else {
-			// Create new nested map
 			newMap := make(map[string]any)
 			current[key] = newMap
 			current = newMap
@@ -138,13 +108,6 @@ func (m *mapConfigSource) DeleteKey(path string) error {
 		}
 		if nextMap, ok := current[key].(map[string]any); ok {
 			current = nextMap
-		} else if nextMap, ok := current[key].(map[string]interface{}); ok {
-			converted := make(map[string]any)
-			for k, v := range nextMap {
-				converted[k] = v
-			}
-			current[key] = converted
-			current = converted
 		} else {
 			return nil
 		}
@@ -824,14 +787,6 @@ func (c *ConfigFileTypedWrapper) GetObject(path string) ConfigFileTyped {
 		if objMap, ok := v.(map[string]any); ok {
 			mapSource := &mapConfigSource{data: objMap, readOnly: true}
 			return &ConfigFileTypedWrapper{inner: mapSource}
-		} else if objMap, ok := v.(map[string]interface{}); ok {
-			// Convert map[string]interface{} to map[string]any
-			converted := make(map[string]any)
-			for k, v := range objMap {
-				converted[k] = v
-			}
-			mapSource := &mapConfigSource{data: converted, readOnly: true}
-			return &ConfigFileTypedWrapper{inner: mapSource}
 		}
 	}
 	return nil
@@ -846,28 +801,15 @@ func (c *ConfigFileTypedWrapper) GetObjectSlice(path string) []ConfigFileTyped {
 				if objMap, ok := item.(map[string]any); ok {
 					mapSource := &mapConfigSource{data: objMap, readOnly: true}
 					objects = append(objects, &ConfigFileTypedWrapper{inner: mapSource})
-				} else if objMap, ok := item.(map[string]interface{}); ok {
-					// Convert map[string]interface{} to map[string]any
-					converted := make(map[string]any)
-					for k, v := range objMap {
-						converted[k] = v
-					}
-					mapSource := &mapConfigSource{data: converted, readOnly: true}
-					objects = append(objects, &ConfigFileTypedWrapper{inner: mapSource})
 				}
 			}
 			return objects
 		}
-		// Handle []map[string]interface{} (TOML style)
+		// Handle []map[string]interface{} (TOML style - BurntSushi/toml produces this type)
 		if slice, ok := v.([]map[string]interface{}); ok {
 			objects := make([]ConfigFileTyped, 0, len(slice))
 			for _, item := range slice {
-				// Convert map[string]interface{} to map[string]any
-				converted := make(map[string]any)
-				for k, v := range item {
-					converted[k] = v
-				}
-				mapSource := &mapConfigSource{data: converted, readOnly: true}
+				mapSource := &mapConfigSource{data: item, readOnly: true}
 				objects = append(objects, &ConfigFileTypedWrapper{inner: mapSource})
 			}
 			return objects

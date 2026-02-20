@@ -37,7 +37,7 @@ The CLI package includes a set of built-in commands that are always available. T
 
 By default usage guidance is automatically generated for each command and subcommand. This includes information about the command's flags and arguments. The help text is displayed when the user invokes the command with the `-h` or `--help` flag, alternativly if there's no `Run` function defined for a command the help guide will be displayed.
 
-The help can be disabled by setting `DisabledHelp: true` field on the root command.
+The help can be disabled by setting `DisableHelp: true` field on the root command.
 
 ### Version Display
 

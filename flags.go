@@ -222,7 +222,7 @@ func (f *FlagTyped[T]) parseString(value string, hasValue bool, parsedFlags map[
 		if err != nil {
 			return fmt.Errorf("invalid uint value for flag --%s: %s", f.Name, value)
 		}
-		parsedFlags[f.Name] = uintVal
+		parsedFlags[f.Name] = uint(uintVal)
 		if f.AssignTo != nil {
 			*f.AssignTo = uint(uintVal)
 		}

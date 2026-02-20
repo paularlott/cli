@@ -128,7 +128,7 @@ func NewConfigFile(fileName *string, searchPathFunc cli.SearchPathFunc) cli.Conf
 By default the configuration file is designed to be used by the flag processor however the accessor can be used with `cli.NewTypedConfigFile` to provide a strongly typed interface to the configuration data.
 
 ```go
-cfg := cli.NewTypedConfigFile(cli.NewConfigFile(cli.StrToPtr("config.toml"), nil))
+cfg := cli.NewTypedConfigFile(cli_toml.NewConfigFile(cli.StrToPtr("config.toml"), nil))
 
 value := cfg.GetString("server.listen")
 ```

@@ -32,8 +32,8 @@ Marking an argument as required by setting the `Required` field to `true` will e
 The value of the arguments can be accessed with the `Get*Arg` methods on the `cli.Command` instance.
 
 ```go
-name := cmd.GetString("name")
-age := cmd.GetInt("age")
+name := cmd.GetStringArg("name")
+age := cmd.GetIntArg("age")
 ```
 
 In the case of age it's value will also be available in the variable `ageValue`.

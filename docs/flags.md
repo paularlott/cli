@@ -24,12 +24,12 @@ var myCommand = &cli.Command{
   Name:    "mycommand",
   Usage:   "This is my command",
   Flags: []cli.Flag{
-    cli.StringFlag{
+    &cli.StringFlag{
       Name:         "config",
       DefaultValue: "config.yaml",
       Usage:        "Path to the config file",
     },
-    cli.BoolFlag{
+    &cli.BoolFlag{
       Name:  "verbose",
       Usage: "Enable verbose output",
     },
@@ -46,7 +46,7 @@ var myCommand = &cli.Command{
   Name:    "mycommand",
   Usage:   "This is my command",
   Flags: []cli.Flag{
-    cli.StringFlag{
+    &cli.StringFlag{
       Name:    "listen",
       Usage:   "The address and port to listen on",
       Aliases: []string{"l", "address"},
@@ -64,7 +64,7 @@ var myCommand = &cli.Command{
   Name:    "mycommand",
   Usage:   "This is my command",
   Flags: []cli.Flag{
-    cli.StringFlag{
+    &cli.StringFlag{
       Name:    "listen",
       Usage:   "The address and port to listen on",
       EnvVars: []string{"EXAMPLE_LISTEN", "EXAMPLE_ADDRESS"},
@@ -196,15 +196,15 @@ var myCommand = &cli.Command{
   Name:    "mycommand",
   Usage:   "This is my command",
   Flags: []cli.Flag{
-    cli.StringFlag{
+    &cli.StringFlag{
       Name:         "config",
       DefaultValue: "config.yaml",
       Usage:        "Path to the config file",
     },
-    cli.IntFlag{
+    &cli.IntFlag{
       Name:  "age",
       Usage: "User's age",
-      ValidateFlag: (c *cli.Command) error {
+      ValidateFlag: func(c *cli.Command) error {
         if c.GetInt("age") < 0 {
           return fmt.Errorf("age must be positive")
         }

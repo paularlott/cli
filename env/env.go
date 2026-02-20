@@ -11,6 +11,8 @@ import (
 	"strings"
 )
 
+var bracedVarRe = regexp.MustCompile(`\$\{([a-zA-Z_][a-zA-Z0-9_]*)\}`)
+
 // Load loads .env files. If no filenames are provided, it defaults to ".env".
 // Each file is loaded in turn, with later files overriding values from earlier ones.
 // It parses key=value pairs, expands variables, and sets them as environment variables.
@@ -282,9 +284,7 @@ func expandVariables(value string) string {
 
 // expandBracedVariables expands ${VAR} style variables.
 func expandBracedVariables(value string) string {
-	re := regexp.MustCompile(`\$\{([a-zA-Z_][a-zA-Z0-9_]*)\}`)
-
-	return re.ReplaceAllStringFunc(value, func(match string) string {
+	return bracedVarRe.ReplaceAllStringFunc(value, func(match string) string {
 		// Extract the variable name from ${VAR}
 		varName := match[2 : len(match)-1]
 		if val := os.Getenv(varName); val != "" {

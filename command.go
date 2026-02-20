@@ -81,9 +81,9 @@ func (c *Command) Execute(ctx context.Context) error {
 	}
 
 	// Execute, PreRun, Run, and PostRun
-	var preErr error = nil
-	var runErr error = nil
-	var postErr error = nil
+	var preErr error
+	var runErr error
+	var postErr error
 
 	// From the command look back towards the root for the first PreRun command
 	for i := len(commandSequence) - 1; i >= 0; i-- {

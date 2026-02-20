@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"os"
+	"strings"
 	"testing"
 )
 
@@ -420,7 +421,7 @@ func TestArgumentsWithSubcommands_EdgeCases(t *testing.T) {
 				t.Fatalf("expected error=%v, got %v", tt.wantErr, err)
 			}
 			if tt.errContains != "" && err != nil {
-				if err.Error() != tt.errContains && !contains(err.Error(), tt.errContains) {
+				if !strings.Contains(err.Error(), tt.errContains) {
 					t.Fatalf("expected error containing %q, got %q", tt.errContains, err.Error())
 				}
 			}
@@ -428,6 +429,3 @@ func TestArgumentsWithSubcommands_EdgeCases(t *testing.T) {
 	}
 }
 
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(substr) == 0 || len(s) > 0 && (s[0:len(substr)] == substr || contains(s[1:], substr)))
-}

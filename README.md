@@ -157,6 +157,16 @@ When the help is enabled `-h` or `--help` will show the usage information for th
 | `[flags]`     | Command flags                 |
 | `[command]`   | Subcommands available         |
 
+## TUI Package
+
+The `tui` sub-package provides a full-screen terminal UI framework for building interactive CLI applications — chat interfaces, log viewers, AI assistants, and more. It supports themes, slash-command palettes, streaming output, menus, spinner/progress indicators, and output-only mode.
+
+```bash
+go get github.com/paularlott/cli/tui
+```
+
+See the [tui package README](tui/README.md) for full documentation.
+
 ## Documentation
 
 - [Arguments](docs/arguments.md)
