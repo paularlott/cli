@@ -51,7 +51,8 @@ func main() {
 						{Name: "exit", Description: "Exit the application"},
 						{Name: "help", Description: "Show available commands"},
 						{Name: "clear", Description: "Clear conversation history"},
-						{Name: "status", Description: "Set the status bar message"},
+						{Name: "lstatus", Description: "Set the left status bar message"},
+						{Name: "rstatus", Description: "Set the right status bar message"},
 						{Name: "theme", Description: "Switch theme"},
 						{Name: "stream", Description: "Simulate a streaming LLM response"},
 						{Name: "demo", Description: "Add a demo message with a code block"},
@@ -70,10 +71,17 @@ func main() {
 				Handler:     func(_ string) { t.ClearOutput() },
 			},
 			{
-				Name:        "status",
+				Name:        "lstatus",
+				Description: "Set the left status bar message",
+				Handler: func(args string) {
+					t.SetStatusLeft(args)
+				},
+			},
+			{
+				Name:        "rstatus",
 				Description: "Set the status bar message",
 				Handler: func(args string) {
-					t.SetStatus(args, "Ctrl+C to exit")
+					t.SetStatusRight(args)
 				},
 			},
 			{

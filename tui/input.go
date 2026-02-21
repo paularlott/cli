@@ -12,6 +12,8 @@ type inputArea struct {
 	draft   string // saved current input while browsing
 }
 
+const inputMinHeight = 4
+
 func newInputArea() *inputArea {
 	return &inputArea{lines: [][]rune{{}}, hisIdx: -1}
 }
@@ -210,15 +212,16 @@ func (a *inputArea) ctrlW() {
 
 // render draws the input box into buf using absolute cursor positioning.
 // overlay is optional text embedded right-aligned into the top border (replaces ─ chars).
-func (a *inputArea) render(buf *strings.Builder, t *Theme, w, maxHeight, startRow int, overlay string) int {
-	height := len(a.lines) + 2
-	if height < 3 {
-		height = 3
+// statusLeft/statusRight are embedded into the bottom border; empty strings are hidden.
+func (a *inputArea) render(buf *strings.Builder, t *Theme, w, maxHeight, startRow int, overlay, statusLeft, statusRight string) int {
+	height := len(a.lines) + 4 // 2 borders + 2 padding rows
+	if height < inputMinHeight {
+		height = inputMinHeight
 	}
 	if height > maxHeight {
 		height = maxHeight
 	}
-	innerH := height - 2
+	innerH := height - 4 // content rows excluding padding
 
 	// Keep cursor row in the visible window.
 	if a.row < a.viewOff {
@@ -248,10 +251,15 @@ func (a *inputArea) render(buf *strings.Builder, t *Theme, w, maxHeight, startRo
 		buf.WriteString(fg(t.Dim) + "┌" + strings.Repeat("─", dashW) + reset + fg(t.Primary) + ovl + reset + fg(t.Dim) + "┐" + reset)
 	}
 
+	// blank padding row
+	buf.WriteString(cursorPos(startRow+1, 1))
+	buf.WriteString(clearLine())
+	buf.WriteString(fg(t.Dim) + "│" + reset + strings.Repeat(" ", w-2) + fg(t.Dim) + "│" + reset)
+
 	// content rows
 	for i := 0; i < innerH; i++ {
 		lineIdx := a.viewOff + i
-		buf.WriteString(cursorPos(startRow+1+i, 1))
+		buf.WriteString(cursorPos(startRow+2+i, 1))
 		buf.WriteString(clearLine())
 		buf.WriteString(fg(t.Dim) + "│" + reset + " ")
 		var rendered string
@@ -273,10 +281,44 @@ func (a *inputArea) render(buf *strings.Builder, t *Theme, w, maxHeight, startRo
 		buf.WriteString(fg(t.Dim) + "│" + reset)
 	}
 
-	// bottom border
-	buf.WriteString(cursorPos(startRow+1+innerH, 1))
+	// blank padding row
+	buf.WriteString(cursorPos(startRow+2+innerH, 1))
 	buf.WriteString(clearLine())
-	buf.WriteString(fg(t.Dim) + "└" + strings.Repeat("─", w-2) + "┘" + reset)
+	buf.WriteString(fg(t.Dim) + "│" + reset + strings.Repeat(" ", w-2) + fg(t.Dim) + "│" + reset)
+
+	// bottom border — embed statusLeft and statusRight if provided
+	buf.WriteString(cursorPos(startRow+3+innerH, 1))
+	buf.WriteString(clearLine())
+	switch {
+	case statusLeft != "" && statusRight != "":
+		left := " " + statusLeft + " "
+		right := " " + statusRight + " "
+		leftLen := visibleLen(left)
+		rightLen := visibleLen(right)
+		dashW := w - 2 - leftLen - rightLen
+		if dashW < 0 {
+			dashW = 0
+		}
+		buf.WriteString(fg(t.Dim) + "└" + reset + fg(t.Dim) + left + reset + fg(t.Dim) + strings.Repeat("─", dashW) + reset + fg(t.Dim) + right + reset + fg(t.Dim) + "┘" + reset)
+	case statusLeft != "":
+		left := " " + statusLeft + " "
+		leftLen := visibleLen(left)
+		dashW := w - 2 - leftLen
+		if dashW < 0 {
+			dashW = 0
+		}
+		buf.WriteString(fg(t.Dim) + "└" + reset + fg(t.Dim) + left + reset + fg(t.Dim) + strings.Repeat("─", dashW) + "┘" + reset)
+	case statusRight != "":
+		right := " " + statusRight + " "
+		rightLen := visibleLen(right)
+		dashW := w - 2 - rightLen
+		if dashW < 0 {
+			dashW = 0
+		}
+		buf.WriteString(fg(t.Dim) + "└" + strings.Repeat("─", dashW) + reset + fg(t.Dim) + right + reset + fg(t.Dim) + "┘" + reset)
+	default:
+		buf.WriteString(fg(t.Dim) + "└" + strings.Repeat("─", w-2) + "┘" + reset)
+	}
 
 	return height
 }

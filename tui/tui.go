@@ -44,7 +44,7 @@
 // # Themes
 //
 // Seven built-in themes: [ThemeAmber], [ThemeBlue], [ThemeGreen], [ThemePurple],
-// [ThemeNavy], [ThemeLight], [ThemePlain]. Look up by name with [ThemeByName].
+// [ThemeLight], [ThemePlain], [ThemeDefault]. Look up by name with [ThemeByName].
 // Register custom themes with [RegisterTheme] or via [Config.Themes].
 package tui
 
@@ -459,9 +459,9 @@ func (t *TUI) resize() {
 
 // inputBoxHeight returns the number of rows the input box occupies (including borders).
 func (t *TUI) inputBoxHeight() int {
-	h := len(t.input.lines) + 2
-	if h < 3 {
-		h = 3
+	h := len(t.input.lines) + 4
+	if h < inputMinHeight {
+		h = inputMinHeight
 	}
 	max := t.height / 2
 	if max < 3 {
@@ -501,16 +501,12 @@ func (t *TUI) draw() {
 	// Fixed bottom rows: palette + input + charcount + status(1)
 	var bottomH int
 	if t.menu != nil {
-		// Menu replaces input: separator(1) + menu(fixed 10) + status(1)
-		bottomH = 1 + 10 + 1
+		// Menu replaces input: separator(1) + menu(fixed 10)
+		bottomH = 1 + 10
 	} else if t.inputEnabled() {
-		charCountH := 0
-		if t.cfg.ShowCharCount {
-			charCountH = 1
-		}
-		bottomH = paletteH + inputH + charCountH + 1
+		bottomH = paletteH + inputH
 	} else {
-		bottomH = 1 + 1 // separator + status
+		bottomH = 1 // separator
 	}
 	outputH := t.height - bottomH
 	if outputH < 1 {
@@ -531,18 +527,42 @@ func (t *TUI) draw() {
 	if !t.inputEnabled() || t.menu != nil {
 		buf.WriteString(cursorPos(row, 1))
 		buf.WriteString(clearLine())
-		buf.WriteString(fg(t.theme.Dim))
 		if t.output.scrollOff > 0 {
-			statusRight := "↑ scrolled · scroll down to follow"
-			sepW := t.width - len(statusRight) - 2
+			scrollHint := "↑ scrolled · scroll down to follow"
+			sepW := t.width - visibleLen(scrollHint) - 2
 			if sepW < 0 {
 				sepW = 0
 			}
-			buf.WriteString(strings.Repeat("─", sepW) + " " + reset + fg(t.theme.Primary) + statusRight + " ")
+			buf.WriteString(fg(t.theme.Dim) + strings.Repeat("─", sepW) + " " + reset + fg(t.theme.Primary) + scrollHint + " " + reset)
+		} else if !t.inputEnabled() && (t.cfg.StatusLeft != "" || t.cfg.StatusRight != "") {
+			// Embed status into the separator line.
+			switch {
+			case t.cfg.StatusLeft != "" && t.cfg.StatusRight != "":
+				left := " " + t.cfg.StatusLeft + " "
+				right := " " + t.cfg.StatusRight + " "
+				dashW := t.width - visibleLen(left) - visibleLen(right)
+				if dashW < 0 {
+					dashW = 0
+				}
+				buf.WriteString(fg(t.theme.Primary) + left + reset + fg(t.theme.Dim) + strings.Repeat("─", dashW) + reset + fg(t.theme.Primary) + right + reset)
+			case t.cfg.StatusLeft != "":
+				left := " " + t.cfg.StatusLeft + " "
+				dashW := t.width - visibleLen(left)
+				if dashW < 0 {
+					dashW = 0
+				}
+				buf.WriteString(fg(t.theme.Primary) + left + reset + fg(t.theme.Dim) + strings.Repeat("─", dashW) + reset)
+			case t.cfg.StatusRight != "":
+				right := " " + t.cfg.StatusRight + " "
+				dashW := t.width - visibleLen(right)
+				if dashW < 0 {
+					dashW = 0
+				}
+				buf.WriteString(fg(t.theme.Dim) + strings.Repeat("─", dashW) + reset + fg(t.theme.Primary) + right + reset)
+			}
 		} else {
-			buf.WriteString(strings.Repeat("─", t.width))
+			buf.WriteString(fg(t.theme.Dim) + strings.Repeat("─", t.width) + reset)
 		}
-		buf.WriteString(reset)
 		row++
 	}
 
@@ -576,32 +596,17 @@ func (t *TUI) draw() {
 
 		// Input box.
 		if t.inputEnabled() {
-			t.input.render(&buf, t.theme, t.width, inputH, row, inputOverlay)
-			row += inputH
-
-			// Char count.
-			if t.cfg.ShowCharCount {
-				buf.WriteString(cursorPos(row, 1))
-				buf.WriteString(clearLine())
-				count := fmt.Sprintf("%d chars", t.input.charCount())
-				pad := t.width - len(count)
-				if pad > 0 {
-					buf.WriteString(strings.Repeat(" ", pad))
-				}
-				buf.WriteString(fg(t.theme.Dim))
-				buf.WriteString(count)
-				buf.WriteString(reset)
-				row++
+			var botLeft, botRight string
+			if t.cfg.StatusLeft != "" {
+				botLeft = t.cfg.StatusLeft
 			}
+			if t.cfg.ShowCharCount {
+				botRight = fmt.Sprintf("%d chars", t.input.charCount())
+			}
+			t.input.render(&buf, t.theme, t.width, inputH, row, inputOverlay, botLeft, botRight)
+			row += inputH
 		}
 	}
-
-	// Status bar.
-	buf.WriteString(cursorPos(row, 1))
-	buf.WriteString(clearLine())
-	buf.WriteString(fg(t.theme.Dim))
-	buf.WriteString(t.cfg.StatusLeft)
-	buf.WriteString(reset)
 
 	fmt.Print(buf.String())
 }
@@ -941,9 +946,13 @@ func (t *TUI) handleInput(b []byte) func() {
 		}
 	}
 
-	// Printable runes.
+	// Printable runes (including pasted newlines).
 	s := string(b)
 	for _, r := range s {
+		if r == '\r' || r == '\n' {
+			t.input.insertNewline()
+			continue
+		}
 		if r < 0x20 {
 			continue
 		}

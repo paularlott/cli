@@ -5,19 +5,19 @@ A full-screen terminal UI framework for building interactive CLI applications �
 ## Layout
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│  Scrollable output / conversation history               │
-│  (auto-scrolls to bottom; Page Up/Down/wheel to scroll) │
-├── ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ──┤
-│  Command palette (visible when / is typed)              │
-├─────────────────────────────────────────────────────────┤
-│  ┌─────────────────────────────────────────────────┐    │
-│  │ > input goes here                               │    │
-│  └─────────────────────────────────────────────────┘    │
-│                                            24 chars     │
-│  myapp                                                  │
-└─────────────────────────────────────────────────────────┘
+  Scrollable output / conversation history
+  (auto-scrolls to bottom; Page Up/Down/wheel to scroll)
+
+  Command palette (visible when / is typed)
+
+┌─────────────────────────────────────── spinner / status ─┐
+│                                                          │
+│ > input goes here                                        │
+│                                                          │
+└─ myapp ──────────────────────────────────────────────────┘
 ```
+
+The input box top border carries the spinner, progress bar, scroll hint, or `StatusRight` text (in that priority order). `StatusLeft` is embedded in the bottom border.
 
 ## Quick Start
 
@@ -237,13 +237,13 @@ t.OpenMenu(&tui.Menu{
 
 ### MenuItem fields
 
-| Field      | Type                                 | Description                                                          |
-| ---------- | ------------------------------------ | -------------------------------------------------------------------- |
-| `Label`    | `string`                             | Display text                                                         |
-| `Value`    | `string`                             | Optional data passed to `OnSelect`                                   |
+| Field      | Type                                 | Description                                                                 |
+| ---------- | ------------------------------------ | --------------------------------------------------------------------------- |
+| `Label`    | `string`                             | Display text                                                                |
+| `Value`    | `string`                             | Optional data passed to `OnSelect`                                          |
 | `Prompt`   | `string`                             | If set, selecting this item opens a text-entry prompt (shows `›` indicator) |
-| `Children` | `[]*MenuItem`                        | If set, selecting pushes a sub-menu (shows `›` indicator)            |
-| `OnSelect` | `func(item *MenuItem, input string)` | Called when item is confirmed; `input` is non-empty for Prompt items |
+| `Children` | `[]*MenuItem`                        | If set, selecting pushes a sub-menu (shows `›` indicator)                   |
+| `OnSelect` | `func(item *MenuItem, input string)` | Called when item is confirmed; `input` is non-empty for Prompt items        |
 
 ### Navigation
 
@@ -339,21 +339,21 @@ tui.RegisterTheme(myTheme)
 
 ## Keyboard Reference
 
-| Key            | Action                                  |
-| -------------- | --------------------------------------- |
-| `Enter`        | Submit input / execute selected command |
-| `Shift+Enter`  | Insert newline                          |
-| `↑` / `↓`      | Move cursor up/down (input), navigate palette, or scroll history |
-| `←` / `→`      | Move cursor left/right                  |
-| `Home` / `End` | Jump to start/end of line               |
-| `Backspace`    | Delete character before cursor          |
-| `Delete`       | Delete character at cursor              |
-| `Ctrl+A`       | Move to start of line                   |
-| `Ctrl+K`       | Delete to end of line                   |
-| `Ctrl+U`       | Delete to start of line                 |
-| `Ctrl+W`       | Delete word before cursor               |
-| `Page Up/Down` | Scroll output half a page               |
-| Mouse wheel    | Scroll output 3 lines                   |
-| `Tab`          | Complete selected palette command/arg   |
-| `Esc`          | Close palette / fire `OnEscape`         |
-| `Ctrl+C`       | Exit                                    |
+| Key            | Action                                                                                       |
+| -------------- | -------------------------------------------------------------------------------------------- |
+| `Enter`        | Submit input / execute selected command                                                      |
+| `Shift+Enter`  | Insert newline                                                                               |
+| `↑` / `↓`      | Move cursor up/down in multi-line input, navigate history (single-line), or navigate palette |
+| `←` / `→`      | Move cursor left/right                                                                       |
+| `Home` / `End` | Jump to start/end of line                                                                    |
+| `Backspace`    | Delete character before cursor                                                               |
+| `Delete`       | Delete character at cursor                                                                   |
+| `Ctrl+A`       | Move to start of line                                                                        |
+| `Ctrl+K`       | Delete to end of line                                                                        |
+| `Ctrl+U`       | Delete to start of line                                                                      |
+| `Ctrl+W`       | Delete word before cursor                                                                    |
+| `Page Up/Down` | Scroll output half a page                                                                    |
+| Mouse wheel    | Scroll output 3 lines                                                                        |
+| `Tab`          | Complete selected palette command/arg                                                        |
+| `Esc`          | Close palette / fire `OnEscape`                                                              |
+| `Ctrl+C`       | Exit                                                                                         |
