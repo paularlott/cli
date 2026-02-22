@@ -124,7 +124,7 @@ t.StopStreaming()
 
 ## Commands
 
-All commands are supplied by the caller — there are no built-ins. Register them in `Config.Commands`:
+All commands are supplied by the caller — there are no built-ins. Register them in `Config.Commands` at construction time, or add/remove them at runtime:
 
 ```go
 Commands: []*tui.Command{
@@ -144,6 +144,16 @@ Commands: []*tui.Command{
         },
     },
 },
+
+// Add a command after construction:
+t.AddCommand(&tui.Command{
+    Name:        "save",
+    Description: "Save current session",
+    Handler:     func(_ string) { saveSession() },
+})
+
+// Remove a command by name:
+t.RemoveCommand("save")
 ```
 
 Type `/` to open the palette. Use `↑`/`↓` to navigate, `Tab` to complete, `Enter` to execute, `Esc` to close.

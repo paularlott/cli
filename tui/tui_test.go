@@ -590,3 +590,25 @@ func TestExitSetsQuit(t *testing.T) {
 		t.Error("Exit should set quit=true")
 	}
 }
+
+func TestAddRemoveCommand(t *testing.T) {
+	tui := New(Config{
+		Commands: []*Command{{Name: "existing", Handler: func(_ string) {}}},
+	})
+
+	tui.AddCommand(&Command{Name: "dynamic", Handler: func(_ string) {}})
+	if len(tui.palette.commands) != 2 {
+		t.Errorf("expected 2 commands after AddCommand, got %d", len(tui.palette.commands))
+	}
+
+	tui.RemoveCommand("existing")
+	if len(tui.palette.commands) != 1 || tui.palette.commands[0].Name != "dynamic" {
+		t.Errorf("expected only 'dynamic' after RemoveCommand, got %v", tui.palette.commands)
+	}
+
+	// RemoveCommand on unknown name is a no-op
+	tui.RemoveCommand("nonexistent")
+	if len(tui.palette.commands) != 1 {
+		t.Errorf("RemoveCommand unknown: expected 1 command, got %d", len(tui.palette.commands))
+	}
+}

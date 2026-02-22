@@ -376,6 +376,26 @@ func (t *TUI) ClearProgress() {
 	t.draw()
 }
 
+// AddCommand registers a new slash command at runtime.
+func (t *TUI) AddCommand(cmd *Command) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.palette.commands = append(t.palette.commands, cmd)
+}
+
+// RemoveCommand removes a slash command by name.
+func (t *TUI) RemoveCommand(name string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	cmds := t.palette.commands[:0]
+	for _, c := range t.palette.commands {
+		if c.Name != name {
+			cmds = append(cmds, c)
+		}
+	}
+	t.palette.commands = cmds
+}
+
 // SetTheme changes the active theme.
 func (t *TUI) SetTheme(theme *Theme) {
 	if theme == nil {
