@@ -14,6 +14,8 @@ func GenerateCompletionCommand() *Command {
 		Name:        "completion",
 		Usage:       "Generate shell completion scripts",
 		Description: "Output shell completion scripts for bash, zsh, fish or powershell",
+		PreRun:      func(ctx context.Context, cmd *Command) (context.Context, error) { return ctx, nil },
+		PostRun:     func(ctx context.Context, cmd *Command) error { return nil },
 		Arguments: []Argument{
 			&StringArg{
 				Name:     "shell",
@@ -32,6 +34,11 @@ func GenerateCompletionCommand() *Command {
 				Usage:  "Return flag completions for the given command path",
 				Hidden: true,
 			},
+			&StringFlag{
+				Name:   "value-flags",
+				Usage:  "Return flags that take a value for the given command path",
+				Hidden: true,
+			},
 		},
 		Run: func(ctx context.Context, cmd *Command) error {
 			shell := cmd.GetStringArg("shell")
@@ -43,6 +50,9 @@ func GenerateCompletionCommand() *Command {
 			} else if cmd.HasFlag("flag") {
 				handleFlagCompletion(cmd, shell)
 				return nil
+			} else if cmd.HasFlag("value-flags") {
+				handleValueFlagsCompletion(cmd)
+				return nil
 			}
 
 			// Generate completion script for the requested shell
@@ -50,41 +60,13 @@ func GenerateCompletionCommand() *Command {
 
 			switch strings.ToLower(shell) {
 			case "bash":
-				err := generateDynamicBashCompletion(os.Stdout, rootCmd)
-				if err == nil {
-					fmt.Fprintln(os.Stderr, "\nBash completion has been generated. To use it, run:")
-					fmt.Fprintln(os.Stderr, "    source <("+rootCmd.Name+" completion bash)")
-					fmt.Fprintln(os.Stderr, "\nTo load completions for each session, execute once:")
-					fmt.Fprintln(os.Stderr, "    "+rootCmd.Name+" completion bash > ~/.bash_completion")
-				}
-				return err
+				return generateDynamicBashCompletion(os.Stdout, rootCmd)
 			case "zsh":
-				err := generateDynamicZshCompletion(os.Stdout, rootCmd)
-				if err == nil {
-					fmt.Fprintln(os.Stderr, "\nZsh completion has been generated. To use it, run:")
-					fmt.Fprintln(os.Stderr, "    source <("+rootCmd.Name+" completion zsh)")
-					fmt.Fprintln(os.Stderr, "\nTo load completions for each session, add to your ~/.zshrc:")
-					fmt.Fprintln(os.Stderr, "    "+rootCmd.Name+" completion zsh > \"${fpath[1]}/_"+rootCmd.Name+"\"")
-				}
-				return err
+				return generateDynamicZshCompletion(os.Stdout, rootCmd)
 			case "fish":
-				err := generateDynamicFishCompletion(os.Stdout, rootCmd)
-				if err == nil {
-					fmt.Fprintln(os.Stderr, "\nFish completion has been generated. To use it, run:")
-					fmt.Fprintln(os.Stderr, "    "+rootCmd.Name+" completion fish | source")
-					fmt.Fprintln(os.Stderr, "\nTo load completions for each session, run once:")
-					fmt.Fprintln(os.Stderr, "    "+rootCmd.Name+" completion fish > ~/.config/fish/completions/"+rootCmd.Name+".fish")
-				}
-				return err
+				return generateDynamicFishCompletion(os.Stdout, rootCmd)
 			case "powershell":
-				err := generateDynamicPowershellCompletion(os.Stdout, rootCmd)
-				if err == nil {
-					fmt.Fprintln(os.Stderr, "\nPowerShell completion has been generated. To use it, run:")
-					fmt.Fprintln(os.Stderr, "    "+rootCmd.Name+" completion powershell | Out-String | Invoke-Expression")
-					fmt.Fprintln(os.Stderr, "\nTo load completions for each session, add to your PowerShell profile:")
-					fmt.Fprintln(os.Stderr, "    "+rootCmd.Name+" completion powershell | Out-String | Invoke-Expression")
-				}
-				return err
+				return generateDynamicPowershellCompletion(os.Stdout, rootCmd)
 			default:
 				return fmt.Errorf("unsupported shell: %s (supported: bash, zsh, fish, powershell)", shell)
 			}
@@ -185,49 +167,99 @@ func handleFlagCompletion(cmd *Command, shell string) {
 	}
 
 	// Output available flags & global flags
-	for _, flag := range current.Flags {
+	printFlag := func(flag Flag) {
 		if flag.isHidden() {
-			continue
+			return
 		}
-
+		name := flag.getName()
 		switch shell {
 		case "fish":
 			if flag.getUsage() == "" {
-				fmt.Printf("--%s\n", flag.getName())
+				fmt.Printf("--%s\n", name)
 			} else {
-				fmt.Printf("--%s\t%s\n", flag.getName(), flag.getUsage())
+				fmt.Printf("--%s\t%s\n", name, flag.getUsage())
 			}
-
+			for _, alias := range flag.getAliases() {
+				if len(alias) >= 2 {
+					fmt.Printf("--%s\n", alias)
+				}
+			}
 		case "powershell":
-			// Powershell uses value:description format
 			if flag.getUsage() != "" {
-				fmt.Printf("--%s:%s\n", flag.getName(), flag.getUsage())
+				fmt.Printf("--%s:%s\n", name, flag.getUsage())
 			} else {
-				fmt.Printf("--%s\n", flag.getName())
+				fmt.Printf("--%s\n", name)
 			}
-
+			for _, alias := range flag.getAliases() {
+				if len(alias) >= 2 {
+					fmt.Printf("--%s\n", alias)
+				}
+			}
 		default:
-			fmt.Printf("--%s\n", flag.getName())
+			fmt.Printf("--%s\n", name)
+			for _, alias := range flag.getAliases() {
+				if len(alias) >= 2 {
+					fmt.Printf("--%s\n", alias)
+				}
+			}
 		}
 	}
 
+	for _, flag := range current.Flags {
+		printFlag(flag)
+	}
 	for _, flag := range globalFlags {
-		switch shell {
-		case "fish":
-			if flag.getUsage() == "" {
-				fmt.Printf("--%s\n", flag.getName())
-			} else {
-				fmt.Printf("--%s\t%s\n", flag.getName(), flag.getUsage())
-			}
-		case "powershell":
-			if flag.getUsage() != "" {
-				fmt.Printf("--%s:%s\n", flag.getName(), flag.getUsage())
-			} else {
-				fmt.Printf("--%s\n", flag.getName())
-			}
-		default:
-			fmt.Printf("--%s\n", flag.getName())
+		printFlag(flag)
+	}
+}
+
+// handleValueFlagsCompletion prints flag names (and aliases) that take a value for the given command path
+func handleValueFlagsCompletion(cmd *Command) {
+	cmdPath := cmd.GetString("value-flags")
+	rootCmd := cmd.GetRootCmd()
+
+	pathParts := strings.Split(cmdPath, " ")
+	current := rootCmd
+
+	var globalFlags []Flag
+
+	for _, part := range pathParts {
+		if part == "" || part == rootCmd.Name {
+			continue
 		}
+		for _, flag := range current.Flags {
+			if flag.isGlobal() {
+				globalFlags = append(globalFlags, flag)
+			}
+		}
+		found := false
+		for _, subCmd := range current.Commands {
+			if subCmd.Name == part {
+				current = subCmd
+				found = true
+				break
+			}
+		}
+		if !found {
+			return
+		}
+	}
+
+	printValueFlag := func(flag Flag) {
+		if _, isBool := flag.(*BoolFlag); isBool {
+			return
+		}
+		fmt.Println(flag.getName())
+		for _, alias := range flag.getAliases() {
+			fmt.Println(alias)
+		}
+	}
+
+	for _, flag := range current.Flags {
+		printValueFlag(flag)
+	}
+	for _, flag := range globalFlags {
+		printValueFlag(flag)
 	}
 }
 
@@ -257,11 +289,25 @@ _%[1]s() {
     local current_word="${COMP_WORDS[COMP_CWORD]}"
     local completions
 
+    # Get flags that take a value so we can skip their arguments
+    local value_flags
+    value_flags=$($exec_path completion bash --value-flags="$cmdpath")
+
     # Build the command path from all non-flag arguments
     if [[ ${#COMP_WORDS[@]} -gt 1 ]]; then
+        local skip_next=0
         for ((i=1; i<COMP_CWORD; i++)); do
-            # Only add non-flag tokens to the command path
-            if [[ "${COMP_WORDS[i]}" != -* ]]; then
+            if [[ $skip_next -eq 1 ]]; then
+                skip_next=0
+                continue
+            fi
+            if [[ "${COMP_WORDS[i]}" == -* ]]; then
+                local fname="${COMP_WORDS[i]#--}"
+                fname="${fname#-}"
+                if echo "$value_flags" | grep -qx "$fname"; then
+                    skip_next=1
+                fi
+            else
                 cmdpath+=" ${COMP_WORDS[i]}"
             fi
         done
@@ -281,7 +327,8 @@ _%[1]s() {
 }
 
 # Register the completion function
-complete -o bashdefault -o default -o nospace -F _%[1]s %[1]s`, cmdName)
+complete -o bashdefault -o default -o nospace -F _%[1]s %[1]s
+`, cmdName)
 
 	return nil
 }
@@ -315,15 +362,27 @@ _%[1]s() {
     local current_word="${words[$CURRENT]}"
     local completions
 
+		# Get flags that take a value so we can skip their arguments
+		local value_flags
+		value_flags=$($exec_path completion zsh --value-flags="$cmdpath")
+
 		# Skip command name and build from arguments
 		if [[ ${#words[@]} -gt 1 ]]; then
+			local skip_next=0
 			for ((i=2; i<CURRENT; i++)); do
-				# Only add subcommands (not flags) to cmdpath
-				if [[ "${words[i]}" != -* ]]; then
-					# Check if previous word is NOT an option expecting an argument
-					if [[ "${words[i-1]}" != -* || "${words[i-1]}" == "--"* ]]; then
-						cmdpath+=" ${words[i]}"
+				if [[ $skip_next -eq 1 ]]; then
+					skip_next=0
+					continue
+				fi
+				if [[ "${words[i]}" == -* ]]; then
+					# Check if this flag takes a value
+					local fname="${words[i]#--}"
+					fname="${fname#-}"
+					if echo "$value_flags" | grep -qx "$fname"; then
+						skip_next=1
 					fi
+				else
+					cmdpath+=" ${words[i]}"
 				fi
 			done
 		fi
@@ -345,7 +404,8 @@ _%[1]s() {
 }
 
 # Register the completion function
-compdef _%[1]s %[1]s`, cmdName)
+compdef _%[1]s %[1]s
+`, cmdName)
 
 	return nil
 }
@@ -381,14 +441,25 @@ function __%[1]s_completion
         set -l cmd_parts $cmd_line[2..-1]
 
         # Remove the last token if it's incomplete (current token being completed)
-        # unless it's a complete word (has a space after it)
         if string match -q -- "*$current_token" $cmd_line[-1] && test -n "$current_token"
             set cmd_parts $cmd_parts[1..-2]
         end
 
-        # Add non-flag tokens to command path
+        # Get flags that take a value so we can skip their arguments
+        set -l value_flags (eval $exec_path completion fish --value-flags=\"$cmd_path\")
+
+        set -l skip_next 0
         for part in $cmd_parts
-            if not string match -q -- '-*' $part
+            if test $skip_next -eq 1
+                set skip_next 0
+                continue
+            end
+            if string match -q -- '-*' $part
+                set -l fname (string replace --regex -- '^--?' '' $part)
+                if contains -- $fname $value_flags
+                    set skip_next 1
+                end
+            else
                 set cmd_path "$cmd_path $part"
             end
         end
@@ -405,7 +476,8 @@ function __%[1]s_completion
 end
 
 # Register the completion function
-complete -c %[1]s -f -a '(__%[1]s_completion)'`, cmdName)
+complete -c %[1]s -f -a '(__%[1]s_completion)'
+`, cmdName)
 
 	return nil
 }
@@ -425,12 +497,12 @@ Register-ArgumentCompleter -Native -CommandName %[1]s -ScriptBlock {
 
     # Set the executable path
     $execPath = $null
-    if (Get-Command %[1]s -ErrorAction SilentlyContinue) {
-        $execPath = "%[1]s"
-    } elseif (Test-Path -Path "./%[1]s.exe") {
+    if (Test-Path -Path "./%[1]s.exe") {
         $execPath = "./%[1]s.exe"
     } elseif (Test-Path -Path "./%[1]s") {
         $execPath = "./%[1]s"
+    } elseif (Get-Command %[1]s -ErrorAction SilentlyContinue) {
+        $execPath = "%[1]s"
     } else {
         # No executable found
         return @()
@@ -440,7 +512,12 @@ Register-ArgumentCompleter -Native -CommandName %[1]s -ScriptBlock {
     $cmdPath = "%[1]s"
     $tokens = $commandAst.CommandElements
 
+    # Get flags that take a value so we can skip their arguments
+`, cmdName)
+	fmt.Fprintln(w, "    $valueFlags = (& $execPath completion powershell --value-flags=\"$cmdPath\" 2>$null) -split \"`n\" | Where-Object { $_ -ne \"\" }")
+	fmt.Fprint(w, `
     # Start at index 1 to skip the command itself
+    $skipNext = $false
     for ($i = 1; $i -lt $tokens.Count; $i++) {
         $token = $tokens[$i].ToString()
 
@@ -449,8 +526,17 @@ Register-ArgumentCompleter -Native -CommandName %[1]s -ScriptBlock {
             continue
         }
 
-        # Only add non-flag tokens to the command path
-        if (-not $token.StartsWith("-")) {
+        if ($skipNext) {
+            $skipNext = $false
+            continue
+        }
+
+        if ($token.StartsWith("-")) {
+            $fname = $token -replace '^--?', ''
+            if ($valueFlags -contains $fname) {
+                $skipNext = $true
+            }
+        } else {
             $cmdPath += " $token"
         }
     }
@@ -467,30 +553,24 @@ Register-ArgumentCompleter -Native -CommandName %[1]s -ScriptBlock {
 
 	# Process completions and return them as CompletionResults
 	if ($completions) {
-`, cmdName)
-	fmt.Fprintln(w, "$completions -split \"`n\" | ForEach-Object {")
-	fmt.Fprintf(w, `			$line = $_.Trim()
-			if ($line) {
-				# Parse completion lines - format should be "value:description"
-				if ($line -match "^(.*?)(?::(.*))?$") {
-					$value = $matches[1]
-					$description = if ($matches.Count -gt 2) { $matches[2] } else { $value }
-
-					# Create a CompletionResult
-					[System.Management.Automation.CompletionResult]::new(
-						$value,    # CompletionText
-						$value,    # ListItemText
-						'ParameterValue',  # ResultType
-						$description  # ToolTip
-					)
-				}
-			}
-		}
-	}
+`)
+	fmt.Fprintln(w, "    $completions -split \"`n\" | Where-Object { $_ -ne '' -and $_.Split(':')[0] -like \"$currentWord*\" } | ForEach-Object {")
+	fmt.Fprint(w, `        $parts = $_ -split ':', 2
+        $value = $parts[0]
+        $description = if ($parts.Count -gt 1 -and $parts[1] -ne '') { $parts[1] } else { $value }
+        $resultType = if ($value.StartsWith('-')) { 'ParameterName' } else { 'Text' }
+        [System.Management.Automation.CompletionResult]::new(
+            $value,
+            $value,
+            $resultType,
+            $description
+        )
+    }
+}
 }
 
-# Note: This script should be dot-sourced or added to your PowerShell profile
-# Example: . ./%[1]s_completions.ps1`, cmdName)
+`)
+	fmt.Fprintf(w, "# Note: This script should be dot-sourced or added to your PowerShell profile\n# Example: . ./%s_completions.ps1\n", cmdName)
 
 	return nil
 }
