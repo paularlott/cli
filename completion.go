@@ -291,8 +291,8 @@ func generateDynamicZshCompletion(w io.Writer, root *Command) error {
 	cmdName := root.Name
 
 	// Write the function header
-	fmt.Fprintf(w, `#compdef %[1]s
-# zsh completion script for the command %[1]s
+	fmt.Fprintf(w, `# zsh completion script for the command %[1]s
+autoload -U compinit && compinit
 
 _%[1]s() {
     local exec_path
