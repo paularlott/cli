@@ -22,9 +22,12 @@ func main() {
 	var t *tui.TUI
 
 	t = tui.New(tui.Config{
-		StatusLeft:    "tui/example",
-		StatusRight:   "Ctrl+C to exit",
-		ShowCharCount: true,
+		UserLabel:      "You",
+		AssistantLabel: "Assistant",
+		SystemLabel:    "System",
+		StatusLeft:     "tui/example",
+		StatusRight:    "Ctrl+C to exit",
+		ShowCharCount:  true,
 		OnEscape: func() {
 			if t.IsStreaming() {
 				t.StopStreaming()

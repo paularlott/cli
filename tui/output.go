@@ -73,6 +73,19 @@ func (o *outputRegion) Clear() {
 	o.scrollOff = 0
 }
 
+// SetLabels updates the default role labels.
+func (o *outputRegion) SetLabels(user, assistant, system string) {
+	if user != "" {
+		o.userLabel = user
+	}
+	if assistant != "" {
+		o.assistantLabel = assistant
+	}
+	if system != "" {
+		o.systemLabel = system
+	}
+}
+
 func (o *outputRegion) scrollUp(n int)   { o.scrollOff += n }
 func (o *outputRegion) scrollDown(n int) {
 	o.scrollOff -= n

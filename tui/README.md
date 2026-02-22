@@ -75,15 +75,38 @@ type Config struct {
     Commands       []*Command  // Slash commands shown in the palette.
     OnSubmit       func(text string) // Called when the user submits input.
     OnEscape       func()            // Called when Escape is pressed outside the palette.
-    UserLabel      string      // Label for user messages. Default: "You".
-    AssistantLabel string      // Label for assistant messages. Default: "Assistant".
-    SystemLabel    string      // Label for system messages. Default: "System".
+    UserLabel      string      // Label for user messages. Empty string hides the header.
+    AssistantLabel string      // Label for assistant messages. Empty string hides the header.
+    SystemLabel    string      // Label for system messages. Empty string hides the header.
     StatusLeft     string      // Text shown bottom-left.
     StatusRight    string      // Text shown bottom-right (overridden by spinner/progress/scroll hint).
     ShowCharCount  bool        // Show character counter below the input box. Default: false.
-    HideHeaders    bool        // Suppress the role header line between messages. Default: false.
+    HideHeaders    bool        // Suppress all role headers regardless of label values. Default: false.
     InputEnabled   *bool       // Set to false for output-only / log-viewer mode.
 }
+```
+
+## Labels
+
+Headers are shown only when a label is set. Empty string (the default) hides the header for that role.
+
+```go
+// Set at construction time:
+t = tui.New(tui.Config{
+    UserLabel:      "You",
+    AssistantLabel: "GPT-4o",
+    SystemLabel:    "System",
+})
+
+// Update at runtime (empty string leaves that label unchanged):
+t.SetLabels("You", "Claude 3.5", "")
+```
+
+Individual messages can override the default label:
+
+```go
+t.AddMessageAs(tui.RoleAssistant, "GPT-4o", "Here is my answer…")
+t.StartStreamingAs("Claude 3.5")
 ```
 
 ## Messages
@@ -94,7 +117,7 @@ t.AddMessage(tui.RoleUser, "Hello!")
 t.AddMessage(tui.RoleAssistant, "Hi there.")
 t.AddMessage(tui.RoleSystem, "Connected.")
 
-// Append a message with a custom label (overrides the role label).
+// Append a message with a custom label (overrides the role label for this message).
 t.AddMessageAs(tui.RoleAssistant, "GPT-4o", "Here is my answer…")
 ```
 

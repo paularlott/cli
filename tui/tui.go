@@ -134,15 +134,7 @@ func New(cfg Config) *TUI {
 	if cfg.Theme == nil {
 		cfg.Theme = ThemeDefault
 	}
-	if cfg.UserLabel == "" {
-		cfg.UserLabel = "You"
-	}
-	if cfg.AssistantLabel == "" {
-		cfg.AssistantLabel = "Assistant"
-	}
-	if cfg.SystemLabel == "" {
-		cfg.SystemLabel = "System"
-	}
+
 	for _, th := range cfg.Themes {
 		RegisterTheme(th)
 	}
@@ -277,6 +269,15 @@ func (t *TUI) refresh() {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.draw()
+}
+
+// SetLabels updates the default role labels shown in message headers.
+// Empty strings leave the corresponding label unchanged.
+func (t *TUI) SetLabels(user, assistant, system string) {
+	t.mu.Lock()
+	t.output.SetLabels(user, assistant, system)
+	t.mu.Unlock()
+	t.refresh()
 }
 
 // SetStatus updates both status bar texts.
