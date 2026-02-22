@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"strings"
 )
 
@@ -95,7 +94,7 @@ func GenerateCompletionCommand() *Command {
 
 // handleCommandCompletion prints available commands for the given path
 func handleCommandCompletion(cmd *Command, shell string) {
-	cmdPath := filepath.Base(cmd.GetString("command"))
+	cmdPath := cmd.GetString("command")
 	rootCmd := cmd.GetRootCmd()
 
 	// Parse the command path to find the target command
@@ -150,7 +149,7 @@ func handleCommandCompletion(cmd *Command, shell string) {
 
 // handleFlagCompletion prints available flags for the given command path
 func handleFlagCompletion(cmd *Command, shell string) {
-	cmdPath := filepath.Base(cmd.GetString("flag"))
+	cmdPath := cmd.GetString("flag")
 	rootCmd := cmd.GetRootCmd()
 
 	// Parse the command path to find the target command
@@ -220,7 +219,12 @@ func handleFlagCompletion(cmd *Command, shell string) {
 			} else {
 				fmt.Printf("--%s\t%s\n", flag.getName(), flag.getUsage())
 			}
-
+		case "powershell":
+			if flag.getUsage() != "" {
+				fmt.Printf("--%s:%s\n", flag.getName(), flag.getUsage())
+			} else {
+				fmt.Printf("--%s\n", flag.getName())
+			}
 		default:
 			fmt.Printf("--%s\n", flag.getName())
 		}
@@ -235,7 +239,6 @@ func generateDynamicBashCompletion(w io.Writer, root *Command) error {
 
 _%[1]s() {
     local exec_path
-    local suggestions=()
 
     # Check if exec is in the PATH, otherwise assume a local executable
     if command -v %[1]s >/dev/null 2>&1; then
@@ -273,11 +276,8 @@ _%[1]s() {
         completions=$($exec_path completion bash --command="$cmdpath")
     fi
 
-    # Split the output into an array of suggestions
-    IFS=$'\n' read -r -d '' -a suggestions <<< "$completions"
-
-    # Set completion replies
-    COMPREPLY=("${suggestions[@]}")
+    # Filter completions against the current word
+    COMPREPLY=($(compgen -W "${completions}" -- "$current_word"))
 }
 
 # Register the completion function
