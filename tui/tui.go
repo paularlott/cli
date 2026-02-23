@@ -428,9 +428,9 @@ func (t *TUI) Run(ctx context.Context) error {
 	t.resize()
 	t.draw()
 
-	// Enable mouse wheel reporting (SGR extended mode).
-	fmt.Print("\x1b[?1000h\x1b[?1006h")
-	defer fmt.Print("\x1b[?1006l\x1b[?1000l")
+	// Enable mouse wheel reporting (SGR extended mode) and modifyOtherKeys (for SS3 arrow keys).
+	fmt.Print("\x1b[?1000h\x1b[?1006h\x1b[>4;1m")
+	defer fmt.Print("\x1b[?1006l\x1b[?1000l\x1b[>4;0m")
 
 	go func() {
 		<-ctx.Done()
@@ -466,7 +466,7 @@ func (t *TUI) restore() {
 	if t.oldState != nil {
 		term.Restore(t.fd, t.oldState)
 	}
-	fmt.Print(resetScrollRegion(), showCursor(), reset)
+	fmt.Print(resetScrollRegion(), clearScreen(), cursorPos(1, 1), showCursor(), reset)
 }
 
 func (t *TUI) resize() {
@@ -687,6 +687,15 @@ func (t *TUI) handleInput(b []byte) func() {
 			return nil
 		}
 		// List navigation mode.
+		if len(b) == 3 && b[0] == 0x1b && b[1] == 'O' {
+			switch b[2] {
+			case 'A':
+				t.menu.moveUp(6)
+			case 'B':
+				t.menu.moveDown(6)
+			}
+			return nil
+		}
 		if len(b) >= 3 && b[0] == 0x1b && b[1] == '[' {
 			switch b[2] {
 			case 'A':
@@ -740,6 +749,33 @@ func (t *TUI) handleInput(b []byte) func() {
 	}
 
 	// Escape sequences.
+	// SS3 arrow keys: ESC O A/B/C/D; ESC O M = Shift+Enter (macOS Terminal.app)
+	if len(b) == 3 && b[0] == 0x1b && b[1] == 'O' {
+		switch b[2] {
+		case 'A':
+			if t.inputEnabled() && t.palette.active {
+				t.palette.moveUp()
+			} else if !t.inputEnabled() || !t.input.historyUp() {
+				t.input.moveUp()
+			}
+		case 'B':
+			if t.inputEnabled() && t.palette.active {
+				t.palette.moveDown(8)
+			} else if !t.inputEnabled() || !t.input.historyDown() {
+				t.input.moveDown()
+			}
+		case 'C':
+			t.input.moveRight()
+		case 'D':
+			t.input.moveLeft()
+		case 'M':
+			if t.inputEnabled() {
+				t.input.insertNewline()
+			}
+		}
+		return nil
+	}
+
 	if len(b) >= 3 && b[0] == 0x1b && b[1] == '[' {
 		switch b[2] {
 		case 'A': // Up
@@ -768,7 +804,7 @@ func (t *TUI) handleInput(b []byte) func() {
 		case 'F': // End
 			t.input.end()
 			return nil
-		case '2': // Shift+Enter: ESC [ 2 7 ; 2 ; 1 3 ~
+		case '2': // Shift+Enter (modifyOtherKeys): ESC [ 2 7 ; 2 ; 1 3 ~
 			if len(b) == 10 && string(b) == "\x1b[27;2;13~" {
 				t.input.insertNewline()
 			}
@@ -926,7 +962,7 @@ func (t *TUI) handleInput(b []byte) func() {
 		return nil
 	}
 
-	// Shift+Enter: ESC \r or kitty ESC [ 1 3 ; 2 u
+	// Shift+Enter: ESC \r (sent by xterm.js DOM interceptor) or kitty ESC [ 1 3 ; 2 u
 	if (len(b) == 2 && b[0] == 0x1b && b[1] == '\r') ||
 		(len(b) == 7 && string(b) == "\x1b[13;2u") {
 		t.input.insertNewline()
