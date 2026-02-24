@@ -119,7 +119,7 @@ type TUI struct {
 	fd            int
 	oldState      *term.State
 	quit          bool
-	mu            sync.Mutex
+	mu            sync.RWMutex
 	spinnerText   string
 	spinnerFrame  int
 	spinnerStop   chan struct{}
@@ -174,8 +174,8 @@ func (t *TUI) CloseMenu() {
 // Context returns the context that was passed to Run.
 // Returns nil if Run has not been called yet.
 func (t *TUI) Context() context.Context {
-	t.mu.Lock()
-	defer t.mu.Unlock()
+	t.mu.RLock()
+	defer t.mu.RUnlock()
 	return t.ctx
 }
 
@@ -205,8 +205,8 @@ func (t *TUI) AddMessage(role MessageRole, content string) {
 
 // IsStreaming returns true if a streaming message is in progress.
 func (t *TUI) IsStreaming() bool {
-	t.mu.Lock()
-	defer t.mu.Unlock()
+	t.mu.RLock()
+	defer t.mu.RUnlock()
 	return t.output.streaming != nil
 }
 
@@ -377,6 +377,14 @@ func (t *TUI) ClearProgress() {
 	t.draw()
 }
 
+// SetInputEnabled toggles the input box at runtime.
+func (t *TUI) SetInputEnabled(enabled bool) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.cfg.InputEnabled = &enabled
+	t.draw()
+}
+
 // AddCommand registers a new slash command at runtime.
 func (t *TUI) AddCommand(cmd *Command) {
 	t.mu.Lock()
@@ -437,6 +445,8 @@ func (t *TUI) Run(ctx context.Context) error {
 		t.mu.Lock()
 		t.quit = true
 		t.mu.Unlock()
+		// Write a NUL byte to unblock the stdin Read so the loop can exit.
+		os.Stdin.Write([]byte{0})
 	}()
 
 	buf := make([]byte, 128)
