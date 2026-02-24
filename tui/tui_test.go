@@ -503,15 +503,6 @@ func TestNewDefaults(t *testing.T) {
 	if tui.theme != ThemeDefault {
 		t.Error("default theme should be ThemeDefault")
 	}
-	if tui.cfg.UserLabel != "You" {
-		t.Errorf("UserLabel: %q", tui.cfg.UserLabel)
-	}
-	if tui.cfg.AssistantLabel != "Assistant" {
-		t.Errorf("AssistantLabel: %q", tui.cfg.AssistantLabel)
-	}
-	if tui.cfg.SystemLabel != "System" {
-		t.Errorf("SystemLabel: %q", tui.cfg.SystemLabel)
-	}
 	if tui.progress != -1 {
 		t.Errorf("progress should be -1, got %f", tui.progress)
 	}

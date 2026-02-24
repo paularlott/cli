@@ -224,12 +224,9 @@ func TestCompletion_Flag_AliasesLongOnly(t *testing.T) {
 			out := captureCompletionOutput(t, []string{"completion", shell, "--flag=app"})
 			// multi-char alias must appear
 			assertContains(t, out, "--name-alias")
-			// single-char aliases must not appear as their own lines
-			for _, line := range strings.Split(out, "\n") {
-				if line == "-n" || line == "-c" {
-					t.Errorf("single-char alias %q must not appear in completions", line)
-				}
-			}
+			// single-char aliases must appear with single dash prefix
+			assertContains(t, out, "-n")
+			assertContains(t, out, "-c")
 		})
 	}
 }
@@ -238,12 +235,9 @@ func TestCompletion_Flag_AliasesInFishOutput(t *testing.T) {
 	out := captureCompletionOutput(t, []string{"completion", "fish", "--flag=app"})
 	assertContains(t, out, "--name")
 	assertContains(t, out, "--count")
-	// single-char aliases must not appear as completions
-	for _, line := range strings.Split(out, "\n") {
-		if line == "-n" || line == "-c" {
-			t.Errorf("single-char alias %q must not appear in flag completions", line)
-		}
-	}
+	// single-char aliases must appear with single dash prefix
+	assertContains(t, out, "-n")
+	assertContains(t, out, "-c")
 }
 
 func TestCompletion_Command_FishDescriptions(t *testing.T) {

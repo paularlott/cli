@@ -180,7 +180,9 @@ func handleFlagCompletion(cmd *Command, shell string) {
 				fmt.Printf("--%s\t%s\n", name, flag.getUsage())
 			}
 			for _, alias := range flag.getAliases() {
-				if len(alias) >= 2 {
+				if len(alias) == 1 {
+					fmt.Printf("-%s\n", alias)
+				} else {
 					fmt.Printf("--%s\n", alias)
 				}
 			}
@@ -191,14 +193,18 @@ func handleFlagCompletion(cmd *Command, shell string) {
 				fmt.Printf("--%s\n", name)
 			}
 			for _, alias := range flag.getAliases() {
-				if len(alias) >= 2 {
+				if len(alias) == 1 {
+					fmt.Printf("-%s\n", alias)
+				} else {
 					fmt.Printf("--%s\n", alias)
 				}
 			}
 		default:
 			fmt.Printf("--%s\n", name)
 			for _, alias := range flag.getAliases() {
-				if len(alias) >= 2 {
+				if len(alias) == 1 {
+					fmt.Printf("-%s\n", alias)
+				} else {
 					fmt.Printf("--%s\n", alias)
 				}
 			}
@@ -322,8 +328,8 @@ _%[1]s() {
         completions=$($exec_path completion bash --command="$cmdpath")
     fi
 
-    # Filter completions against the current word
-    COMPREPLY=($(compgen -W "${completions}" -- "$current_word"))
+    # Filter completions against the current word (use mapfile for safe handling)
+    mapfile -t COMPREPLY < <(compgen -W "${completions}" -- "$current_word")
 }
 
 # Register the completion function
@@ -362,30 +368,30 @@ _%[1]s() {
     local current_word="${words[$CURRENT]}"
     local completions
 
-		# Get flags that take a value so we can skip their arguments
-		local value_flags
-		value_flags=$($exec_path completion zsh --value-flags="$cmdpath")
+    # Get flags that take a value so we can skip their arguments
+    local value_flags
+    value_flags=$($exec_path completion zsh --value-flags="$cmdpath")
 
-		# Skip command name and build from arguments
-		if [[ ${#words[@]} -gt 1 ]]; then
-			local skip_next=0
-			for ((i=2; i<CURRENT; i++)); do
-				if [[ $skip_next -eq 1 ]]; then
-					skip_next=0
-					continue
-				fi
-				if [[ "${words[i]}" == -* ]]; then
-					# Check if this flag takes a value
-					local fname="${words[i]#--}"
-					fname="${fname#-}"
-					if echo "$value_flags" | grep -qx "$fname"; then
-						skip_next=1
-					fi
-				else
-					cmdpath+=" ${words[i]}"
-				fi
-			done
-		fi
+    # Skip command name and build from arguments
+    if [[ ${#words[@]} -gt 1 ]]; then
+        local skip_next=0
+        for ((i=2; i<CURRENT; i++)); do
+            if [[ $skip_next -eq 1 ]]; then
+                skip_next=0
+                continue
+            fi
+            if [[ "${words[i]}" == -* ]]; then
+                # Check if this flag takes a value
+                local fname="${words[i]#--}"
+                fname="${fname#-}"
+                if echo "$value_flags" | grep -qx "$fname"; then
+                    skip_next=1
+                fi
+            else
+                cmdpath+=" ${words[i]}"
+            fi
+        done
+    fi
 
     # Determine whether we are completing a flag or a command/argument
     if [[ "$current_word" == -* ]]; then
