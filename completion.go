@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -84,8 +85,9 @@ func handleCommandCompletion(cmd *Command, shell string) {
 	current := rootCmd
 
 	// Navigate to the specified command
+	binName := execName(rootCmd)
 	for _, part := range pathParts {
-		if part == "" || part == rootCmd.Name {
+		if part == "" || part == rootCmd.Name || part == binName {
 			continue
 		}
 
@@ -141,8 +143,9 @@ func handleFlagCompletion(cmd *Command, shell string) {
 	var globalFlags []Flag
 
 	// Navigate to the specified command
+	binName := execName(rootCmd)
 	for _, part := range pathParts {
-		if part == "" || part == rootCmd.Name {
+		if part == "" || part == rootCmd.Name || part == binName {
 			continue
 		}
 
@@ -181,9 +184,17 @@ func handleFlagCompletion(cmd *Command, shell string) {
 			}
 			for _, alias := range flag.getAliases() {
 				if len(alias) == 1 {
-					fmt.Printf("-%s\n", alias)
+					if flag.getUsage() == "" {
+						fmt.Printf("-%s\n", alias)
+					} else {
+						fmt.Printf("-%s\t%s\n", alias, flag.getUsage())
+					}
 				} else {
-					fmt.Printf("--%s\n", alias)
+					if flag.getUsage() == "" {
+						fmt.Printf("--%s\n", alias)
+					} else {
+						fmt.Printf("--%s\t%s\n", alias, flag.getUsage())
+					}
 				}
 			}
 		case "powershell":
@@ -194,9 +205,17 @@ func handleFlagCompletion(cmd *Command, shell string) {
 			}
 			for _, alias := range flag.getAliases() {
 				if len(alias) == 1 {
-					fmt.Printf("-%s\n", alias)
+					if flag.getUsage() != "" {
+						fmt.Printf("-%s:%s\n", alias, flag.getUsage())
+					} else {
+						fmt.Printf("-%s\n", alias)
+					}
 				} else {
-					fmt.Printf("--%s\n", alias)
+					if flag.getUsage() != "" {
+						fmt.Printf("--%s:%s\n", alias, flag.getUsage())
+					} else {
+						fmt.Printf("--%s\n", alias)
+					}
 				}
 			}
 		default:
@@ -229,8 +248,9 @@ func handleValueFlagsCompletion(cmd *Command) {
 
 	var globalFlags []Flag
 
+	binName := execName(rootCmd)
 	for _, part := range pathParts {
-		if part == "" || part == rootCmd.Name {
+		if part == "" || part == rootCmd.Name || part == binName {
 			continue
 		}
 		for _, flag := range current.Flags {
@@ -269,26 +289,33 @@ func handleValueFlagsCompletion(cmd *Command) {
 	}
 }
 
+// execName returns the actual binary name from os.Args[0], falling back to root.Name
+func execName(root *Command) string {
+	if len(os.Args) > 0 {
+		if name := filepath.Base(os.Args[0]); name != "" && name != "." {
+			return name
+		}
+	}
+	return root.Name
+}
+
+// execPath returns the absolute path of the running binary
+func execPath() string {
+	if p, err := filepath.Abs(os.Args[0]); err == nil {
+		return p
+	}
+	return os.Args[0]
+}
+
 // Generate a dynamic bash completion script
 func generateDynamicBashCompletion(w io.Writer, root *Command) error {
-	cmdName := root.Name
+	cmdName := execName(root)
 
 	fmt.Fprintf(w, `# bash completion script for the command %[1]s
 
 _%[1]s() {
     local exec_path
-
-    # Check if exec is in the PATH, otherwise assume a local executable
-    if command -v %[1]s >/dev/null 2>&1; then
-        exec_path="%[1]s"
-    else
-        exec_path="./%[1]s"
-    fi
-
-    # Exit if the command is not executable
-    if ! [[ -x "$exec_path" ]]; then
-        return 1
-    fi
+    exec_path=$(eval echo "${COMP_WORDS[0]}")
 
     # Capture the current command line words
     local cmdpath="%[1]s"
@@ -333,15 +360,15 @@ _%[1]s() {
 }
 
 # Register the completion function
-complete -o bashdefault -o default -o nospace -F _%[1]s %[1]s
-`, cmdName)
+complete -o bashdefault -o default -o nospace -F _%[1]s %[1]s '%[2]s'
+`, cmdName, execPath())
 
 	return nil
 }
 
 // generateDynamicZshCompletion writes a zsh completion script that calls back to the program
 func generateDynamicZshCompletion(w io.Writer, root *Command) error {
-	cmdName := root.Name
+	cmdName := execName(root)
 
 	// Write the function header
 	fmt.Fprintf(w, `# zsh completion script for the command %[1]s
@@ -349,19 +376,8 @@ autoload -U compinit && compinit
 
 _%[1]s() {
     local exec_path
+    exec_path=$(eval echo "${words[1]}")
     local -a suggestions
-
-    # Check if exec is in the PATH, otherwise assume a local executable
-    if command -v %[1]s >/dev/null 2>&1; then
-        exec_path="%[1]s"
-    else
-        exec_path="./%[1]s"
-    fi
-
-    # Exit if the command is not executable
-    if ! [[ -x "$exec_path" ]]; then
-        return 1
-    fi
 
     # Capture the current command line words
     local cmdpath="%[1]s"
@@ -406,39 +422,31 @@ _%[1]s() {
     suggestions=("${(@f)completions}")
 
     # Add the suggestions to the completion list
-    compadd -- "${suggestions[@]}"
+    if [[ ${#suggestions[@]} -gt 0 && -n "${suggestions[1]}" ]]; then
+        compadd -- "${suggestions[@]}"
+    else
+        _default
+    fi
 }
 
 # Register the completion function
-compdef _%[1]s %[1]s
-`, cmdName)
+compdef _%[1]s %[1]s %[2]s
+`, cmdName, execPath())
 
 	return nil
 }
 
 // generateDynamicFishCompletion writes a fish completion script that calls back to the program
 func generateDynamicFishCompletion(w io.Writer, root *Command) error {
-	cmdName := root.Name
+	cmdName := execName(root)
 
 	fmt.Fprintf(w, `# fish completion script for the command %[1]s
 
 function __%[1]s_completion
-    set -l exec_path
     set -l cmd_line (commandline -opc)
+    set -l exec_path $cmd_line[1]
     set -l current_token (commandline -ct)
     set -l cmd_path "%[1]s"
-
-    # Check if exec is in the PATH, otherwise assume a local executable
-    if command -sq %[1]s
-        set exec_path "%[1]s"
-    else
-        set exec_path "./%[1]s"
-    end
-
-    # Exit if the command is not executable
-    if not test -x "$exec_path"
-        return 1
-    end
 
     # Build the command path including all executed subcommands (not the current token)
     # First token is always the exec name which we've already included
@@ -490,33 +498,20 @@ complete -c %[1]s -f -a '(__%[1]s_completion)'
 
 // generateDynamicPowershellCompletion generates a PowerShell completion script
 func generateDynamicPowershellCompletion(w io.Writer, root *Command) error {
-	cmdName := root.Name
+	cmdName := execName(root)
 
 	fmt.Fprintf(w, `# PowerShell completion script for the command %[1]s
 
 Register-ArgumentCompleter -Native -CommandName %[1]s -ScriptBlock {
     param($wordToComplete, $commandAst, $cursorPosition)
 
-    # Get the command line and the current word
-    $cmdLine = $commandAst.ToString()
+    # Get the current word
     $currentWord = $wordToComplete
-
-    # Set the executable path
-    $execPath = $null
-    if (Test-Path -Path "./%[1]s.exe") {
-        $execPath = "./%[1]s.exe"
-    } elseif (Test-Path -Path "./%[1]s") {
-        $execPath = "./%[1]s"
-    } elseif (Get-Command %[1]s -ErrorAction SilentlyContinue) {
-        $execPath = "%[1]s"
-    } else {
-        # No executable found
-        return @()
-    }
 
     # Build the command path from all tokens before cursor
     $cmdPath = "%[1]s"
     $tokens = $commandAst.CommandElements
+    $execPath = $ExecutionContext.InvokeCommand.ExpandString($tokens[0].ToString())
 
     # Get flags that take a value so we can skip their arguments
 `, cmdName)
