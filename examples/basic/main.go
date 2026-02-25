@@ -127,6 +127,19 @@ func main() {
 					fmt.Println("Greeting:", cmd.GetString("greeting"))
 					return nil
 				},
+				Commands: []*cli.Command{
+					{
+						Name:  "person",
+						Usage: "Greet a person",
+						Flags: []cli.Flag{
+							&cli.StringFlag{Name: "name", Aliases: []string{"n"}, DefaultValue: "Dude", Usage: "Name of the person to greet"},
+						},
+						Run: func(ctx context.Context, cmd *cli.Command) error {
+							fmt.Println("Hello Person: ", cmd.GetString("name"))
+							return nil
+						},
+					},
+				},
 			},
 		},
 	}
