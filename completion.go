@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
 
@@ -40,12 +41,20 @@ func GenerateCompletionCommand() *Command {
 				Usage:  "Return flags that take a value for the given command path",
 				Hidden: true,
 			},
+			&StringFlag{
+				Name:   "arg",
+				Usage:  "Return dynamic argument completions: 'cmdpath:argindex:partial'",
+				Hidden: true,
+			},
 		},
 		Run: func(ctx context.Context, cmd *Command) error {
 			shell := cmd.GetStringArg("shell")
 
 			// Handle the dynamic completion mode when called with the completion flags
-			if cmd.HasFlag("command") {
+			if cmd.HasFlag("arg") {
+				handleArgCompletion(cmd, shell)
+				return nil
+			} else if cmd.HasFlag("command") {
 				handleCommandCompletion(cmd, shell)
 				return nil
 			} else if cmd.HasFlag("flag") {
@@ -127,6 +136,87 @@ func handleCommandCompletion(cmd *Command, shell string) {
 		default:
 			// Just need command names
 			fmt.Println(subCmd.Name)
+		}
+	}
+}
+
+// handleArgCompletion calls the CompletionFunc for the argument at the given index.
+// The flag value format is "cmdpath:argindex:partial".
+func handleArgCompletion(cmd *Command, shell string) {
+	raw := cmd.GetString("arg")
+	parts := strings.SplitN(raw, ":", 3)
+	if len(parts) < 2 {
+		return
+	}
+	cmdPath := parts[0]
+	argIdx, err := strconv.Atoi(parts[1])
+	if err != nil {
+		return
+	}
+	partial := ""
+	if len(parts) == 3 {
+		partial = parts[2]
+	}
+
+	rootCmd := cmd.GetRootCmd()
+	current := rootCmd
+	binName := execName(rootCmd)
+	for _, part := range strings.Split(cmdPath, " ") {
+		if part == "" || part == rootCmd.Name || part == binName {
+			continue
+		}
+		found := false
+		for _, subCmd := range current.Commands {
+			if subCmd.Name == part {
+				current = subCmd
+				found = true
+				break
+			}
+		}
+		if !found {
+			return
+		}
+	}
+
+	if argIdx < 0 || argIdx >= len(current.Arguments) {
+		return
+	}
+	fn := current.Arguments[argIdx].completionFunc()
+	if fn == nil {
+		return
+	}
+
+	items := fn(context.Background(), current)
+	if partial != "" {
+		filtered := items[:0]
+		for _, item := range items {
+			if strings.HasPrefix(item.Value, partial) {
+				filtered = append(filtered, item)
+			}
+		}
+		items = filtered
+	}
+	printCompletionItems(items, shell)
+}
+
+// printCompletionItems outputs completion items in the format expected by each shell.
+func printCompletionItems(items []CompletionItem, shell string) {
+	for _, item := range items {
+		switch shell {
+		case "fish":
+			if item.Description != "" {
+				fmt.Printf("%s\t%s\n", item.Value, item.Description)
+			} else {
+				fmt.Println(item.Value)
+			}
+		case "powershell":
+			if item.Description != "" {
+				fmt.Printf("%s:%s\n", item.Value, item.Description)
+			} else {
+				fmt.Println(item.Value)
+			}
+		default:
+			fmt.Println(item.Value)
 		}
 	}
 }
@@ -324,9 +414,10 @@ _%[1]s() {
 
     # Get flags that take a value so we can skip their arguments
     local value_flags
-    value_flags=$($exec_path completion bash --value-flags="$cmdpath")
 
-    # Build the command path from all non-flag arguments
+    # Build the command path: greedily match subcommands, then count remaining positionals
+    local arg_index=0
+    local in_args=0
     if [[ ${#COMP_WORDS[@]} -gt 1 ]]; then
         local skip_next=0
         for ((i=1; i<COMP_CWORD; i++)); do
@@ -337,11 +428,21 @@ _%[1]s() {
             if [[ "${COMP_WORDS[i]}" == -* ]]; then
                 local fname="${COMP_WORDS[i]#--}"
                 fname="${fname#-}"
+                value_flags=$($exec_path completion bash --value-flags="$cmdpath")
                 if echo "$value_flags" | grep -qx "$fname"; then
                     skip_next=1
                 fi
+            elif [[ $in_args -eq 0 ]]; then
+                local sub_completions
+                sub_completions=$($exec_path completion bash --command="$cmdpath")
+                if echo "$sub_completions" | grep -qx "${COMP_WORDS[i]}"; then
+                    cmdpath+=" ${COMP_WORDS[i]}"
+                else
+                    in_args=1
+                    arg_index=$((arg_index + 1))
+                fi
             else
-                cmdpath+=" ${COMP_WORDS[i]}"
+                arg_index=$((arg_index + 1))
             fi
         done
     fi
@@ -353,6 +454,9 @@ _%[1]s() {
     else
         # Command/subcommand/argument completion
         completions=$($exec_path completion bash --command="$cmdpath")
+        if [[ -z "$completions" ]]; then
+            completions=$($exec_path completion bash --arg="$cmdpath:$arg_index:$current_word")
+        fi
     fi
 
     # Filter completions against the current word (use mapfile for safe handling)
@@ -386,9 +490,10 @@ _%[1]s() {
 
     # Get flags that take a value so we can skip their arguments
     local value_flags
-    value_flags=$($exec_path completion zsh --value-flags="$cmdpath")
 
-    # Skip command name and build from arguments
+    # Skip command name and build from arguments: greedily match subcommands, then count positionals
+    local arg_index=0
+    local in_args=0
     if [[ ${#words[@]} -gt 1 ]]; then
         local skip_next=0
         for ((i=2; i<CURRENT; i++)); do
@@ -397,14 +502,22 @@ _%[1]s() {
                 continue
             fi
             if [[ "${words[i]}" == -* ]]; then
-                # Check if this flag takes a value
                 local fname="${words[i]#--}"
                 fname="${fname#-}"
+                value_flags=$($exec_path completion zsh --value-flags="$cmdpath")
                 if echo "$value_flags" | grep -qx "$fname"; then
                     skip_next=1
                 fi
+            elif [[ $in_args -eq 0 ]]; then
+                local sub_completions=$($exec_path completion zsh --command="$cmdpath")
+                if echo "$sub_completions" | grep -qx "${words[i]}"; then
+                    cmdpath+=" ${words[i]}"
+                else
+                    in_args=1
+                    arg_index=$((arg_index + 1))
+                fi
             else
-                cmdpath+=" ${words[i]}"
+                arg_index=$((arg_index + 1))
             fi
         done
     fi
@@ -416,6 +529,9 @@ _%[1]s() {
     else
         # Request command or argument completions
         completions=$($exec_path completion zsh --command="$cmdpath")
+        if [[ -z "$completions" ]]; then
+            completions=$($exec_path completion zsh --arg="$cmdpath:$arg_index:$current_word")
+        fi
     fi
 
     # Split the output from the command into an array of suggestions
@@ -447,6 +563,7 @@ function __%[1]s_completion
     set -l exec_path $cmd_line[1]
     set -l current_token (commandline -ct)
     set -l cmd_path "%[1]s"
+    set -l arg_index 0
 
     # Build the command path including all executed subcommands (not the current token)
     # First token is always the exec name which we've already included
@@ -459,9 +576,8 @@ function __%[1]s_completion
             set cmd_parts $cmd_parts[1..-2]
         end
 
-        # Get flags that take a value so we can skip their arguments
-        set -l value_flags (eval $exec_path completion fish --value-flags=\"$cmd_path\")
-
+        # Two-pass: first greedily match subcommands, then count remaining positionals as arg_index
+        set -l in_args 0
         set -l skip_next 0
         for part in $cmd_parts
             if test $skip_next -eq 1
@@ -469,23 +585,38 @@ function __%[1]s_completion
                 continue
             end
             if string match -q -- '-*' $part
+                set -l value_flags (eval $exec_path completion fish --value-flags=\"$cmd_path\")
                 set -l fname (string replace --regex -- '^--?' '' $part)
                 if contains -- $fname $value_flags
                     set skip_next 1
                 end
+            else if test $in_args -eq 0
+                set -l sub_names (eval $exec_path completion fish --command=\"$cmd_path\" | string replace --regex '\t.*' '')
+                if contains -- $part $sub_names
+                    set cmd_path "$cmd_path $part"
+                else
+                    set in_args 1
+                    set arg_index (math $arg_index + 1)
+                end
             else
-                set cmd_path "$cmd_path $part"
+                set arg_index (math $arg_index + 1)
             end
         end
     end
+    set -l flag_path $cmd_path
 
     # Request completions from the binary
     if string match -q -- '-*' $current_token
         # Flag completion
-        eval $exec_path completion fish --flag=\"$cmd_path\"
+        eval $exec_path completion fish --flag=\"$flag_path\"
     else
         # Command/subcommand/argument completion
-        eval $exec_path completion fish --command=\"$cmd_path\"
+        set -l completions (eval $exec_path completion fish --command=\"$flag_path\")
+        if test -z "$completions"
+            eval $exec_path completion fish --arg=\"$flag_path:$arg_index:$current_token\"
+        else
+            string join \n $completions
+        end
     end
 end
 
@@ -515,10 +646,11 @@ Register-ArgumentCompleter -Native -CommandName %[1]s -ScriptBlock {
 
     # Get flags that take a value so we can skip their arguments
 `, cmdName)
-	fmt.Fprintln(w, "    $valueFlags = (& $execPath completion powershell --value-flags=\"$cmdPath\" 2>$null) -split \"`n\" | Where-Object { $_ -ne \"\" }")
 	fmt.Fprint(w, `
     # Start at index 1 to skip the command itself
     $skipNext = $false
+    $argIndex = 0
+    $inArgs = $false
     for ($i = 1; $i -lt $tokens.Count; $i++) {
         $token = $tokens[$i].ToString()
 
@@ -533,12 +665,25 @@ Register-ArgumentCompleter -Native -CommandName %[1]s -ScriptBlock {
         }
 
         if ($token.StartsWith("-")) {
+`)
+	fmt.Fprintln(w, "            $vf = (& $execPath completion powershell --value-flags=\"$cmdPath\" 2>$null) -split \"`n\" | Where-Object { $_ -ne \"\" }")
+	fmt.Fprint(w, `
             $fname = $token -replace '^--?', ''
-            if ($valueFlags -contains $fname) {
+            if ($vf -contains $fname) {
                 $skipNext = $true
             }
+        } elseif (-not $inArgs) {
+`)
+	fmt.Fprintln(w, "            $subNames = (& $execPath completion powershell --command=\"$cmdPath\" 2>$null) -split \"`n\" | ForEach-Object { ($_ -split ':')[0].Trim() } | Where-Object { $_ -ne '' }")
+	fmt.Fprint(w, `
+            if ($subNames -contains $token) {
+                $cmdPath += " $token"
+            } else {
+                $inArgs = $true
+                $argIndex++
+            }
         } else {
-            $cmdPath += " $token"
+            $argIndex++
         }
     }
 
@@ -550,6 +695,9 @@ Register-ArgumentCompleter -Native -CommandName %[1]s -ScriptBlock {
     } else {
         # Command/subcommand/argument completion
         $completions = & $execPath completion powershell --command="$cmdPath" 2>$null
+        if (-not $completions) {
+            $completions = & $execPath completion powershell --arg="${cmdPath}:${argIndex}:${currentWord}" 2>$null
+        }
     }
 
 	# Process completions and return them as CompletionResults

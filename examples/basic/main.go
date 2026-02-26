@@ -117,6 +117,34 @@ func main() {
 		Commands: []*cli.Command{
 			cli.GenerateCompletionCommand(),
 			{
+				Name:  "space",
+				Usage: "Manage spaces",
+				Commands: []*cli.Command{
+					{
+						Name:  "restart",
+						Usage: "Restart a space",
+						Arguments: []cli.Argument{
+							&cli.StringArg{
+								Name:     "name",
+								Usage:    "Name of the space",
+								Required: true,
+								CompletionFunc: func(_ context.Context, _ *cli.Command) []cli.CompletionItem {
+									return []cli.CompletionItem{
+										{Value: "apple", Description: "Apple environment"},
+										{Value: "banana", Description: "Banana environment"},
+										{Value: "cherry", Description: "Cherry environment"},
+									}
+								},
+							},
+						},
+						Run: func(ctx context.Context, cmd *cli.Command) error {
+							fmt.Println("Restarting space:", cmd.GetStringArg("name"))
+							return nil
+						},
+					},
+				},
+			},
+			{
 				Name:  "greet",
 				Usage: "Greet someone",
 				Flags: []cli.Flag{

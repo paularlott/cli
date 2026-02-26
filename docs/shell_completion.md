@@ -10,6 +10,26 @@ Commands: []*cli.Command{
 
 Shell completion is available for Bash, Zsh, Fish and PowerShell.
 
+## Dynamic Argument Completions
+
+Arguments can provide dynamic completions by setting a `CompletionFunc` on the argument. The function receives the context and current command, and returns a slice of `cli.CompletionItem`. Prefix filtering based on what the user has typed is handled automatically by the library.
+
+```go
+&cli.StringArg{
+    Name:  "space",
+    Usage: "Name of the space",
+    CompletionFunc: func(ctx context.Context, cmd *cli.Command) []cli.CompletionItem {
+        // Query your server here and return all candidates.
+        return []cli.CompletionItem{
+            {Value: "apple",  Description: "Apple environment"},
+            {Value: "banana", Description: "Banana environment"},
+        }
+    },
+},
+```
+
+The `Description` field is displayed by shells that support it (Fish and PowerShell). Bash and Zsh show only the `Value`.
+
 ### Bash
 
 To load completions for the current session:

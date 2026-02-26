@@ -1,19 +1,30 @@
 package cli
 
+import "context"
+
+// CompletionItem represents a completion candidate with an optional description.
+// The Description field is used by shells that support it (Fish, PowerShell).
+type CompletionItem struct {
+	Value       string
+	Description string
+}
+
 type Argument interface {
 	name() string
 	usage() string
 	isRequired() bool
 	typeText() string
 	validateArg(*Command) error
+	completionFunc() func(ctx context.Context, cmd *Command) []CompletionItem
 }
 
 type ArgumentTyped[T any] struct {
-	Name        string               // Name of the argument
-	Usage       string               // Usage description for the argument
-	Required    bool                 // Whether this flag is required
-	AssignTo    *T                   // Optional pointer to the variable where the value should be stored
-	ValidateArg func(*Command) error // Optional validation for the argument
+	Name           string                                                              // Name of the argument
+	Usage          string                                                              // Usage description for the argument
+	Required       bool                                                                // Whether this flag is required
+	AssignTo       *T                                                                  // Optional pointer to the variable where the value should be stored
+	ValidateArg    func(*Command) error                                                // Optional validation for the argument
+	CompletionFunc func(ctx context.Context, cmd *Command) []CompletionItem // Optional dynamic completion provider
 }
 
 func (a *ArgumentTyped[T]) name() string {
@@ -39,6 +50,10 @@ func (a *ArgumentTyped[T]) validateArg(c *Command) error {
 		return a.ValidateArg(c)
 	}
 	return nil
+}
+
+func (a *ArgumentTyped[T]) completionFunc() func(ctx context.Context, cmd *Command) []CompletionItem {
+	return a.CompletionFunc
 }
 
 type StringArg = ArgumentTyped[string]

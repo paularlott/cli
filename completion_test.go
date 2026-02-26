@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"os"
 	"strings"
 	"testing"
@@ -280,6 +281,126 @@ func TestCompletion_Command_PowershellDescriptions(t *testing.T) {
 	buf.ReadFrom(r)
 	out := buf.String()
 	assertContains(t, out, "greet:Greet someone")
+}
+
+// ---------------------------------------------------------------------------
+// Dynamic argument completions (--arg)
+// ---------------------------------------------------------------------------
+
+func testDynamicCompletionCmd() *Command {
+	return &Command{
+		Name: "app",
+		Commands: []*Command{
+			GenerateCompletionCommand(),
+			{
+				Name:  "space",
+				Usage: "Manage spaces",
+				Commands: []*Command{
+					{
+						Name:  "restart",
+						Usage: "Restart a space",
+						Arguments: []Argument{
+							&StringArg{
+								Name:  "name",
+								Usage: "Space name",
+								CompletionFunc: func(_ context.Context, _ *Command) []CompletionItem {
+									return []CompletionItem{
+										{Value: "apple", Description: "Apple space"},
+										{Value: "banana", Description: "Banana space"},
+										{Value: "cherry", Description: "Cherry space"},
+									}
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+}
+
+func captureArgCompletionOutput(t *testing.T, shell, argFlag string) string {
+	t.Helper()
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+	os.Args = []string{"app", "completion", shell, "--arg=" + argFlag}
+	_ = testDynamicCompletionCmd().Execute(nil) //nolint
+	w.Close()
+	os.Stdout = old
+	var buf bytes.Buffer
+	buf.ReadFrom(r)
+	return buf.String()
+}
+
+func TestCompletion_Arg_AllItems(t *testing.T) {
+	for _, shell := range []string{"bash", "zsh", "fish", "powershell"} {
+		t.Run(shell, func(t *testing.T) {
+			out := captureArgCompletionOutput(t, shell, "app space restart:0:")
+			assertContains(t, out, "apple")
+			assertContains(t, out, "banana")
+			assertContains(t, out, "cherry")
+		})
+	}
+}
+
+func TestCompletion_Arg_Filtered(t *testing.T) {
+	for _, shell := range []string{"bash", "zsh", "fish", "powershell"} {
+		t.Run(shell, func(t *testing.T) {
+			out := captureArgCompletionOutput(t, shell, "app space restart:0:b")
+			assertContains(t, out, "banana")
+			assertNotContains(t, out, "apple")
+			assertNotContains(t, out, "cherry")
+		})
+	}
+}
+
+func TestCompletion_Arg_FishDescriptions(t *testing.T) {
+	out := captureArgCompletionOutput(t, "fish", "app space restart:0:")
+	assertContains(t, out, "apple\tApple space")
+	assertContains(t, out, "banana\tBanana space")
+}
+
+func TestCompletion_Arg_PowershellDescriptions(t *testing.T) {
+	out := captureArgCompletionOutput(t, "powershell", "app space restart:0:")
+	assertContains(t, out, "apple:Apple space")
+	assertContains(t, out, "banana:Banana space")
+}
+
+func TestCompletion_Arg_OutOfRange(t *testing.T) {
+	out := captureArgCompletionOutput(t, "bash", "app space restart:5:")
+	if strings.TrimSpace(out) != "" {
+		t.Errorf("expected empty output for out-of-range arg index, got: %s", out)
+	}
+}
+
+func TestCompletion_Arg_NoCompletionFunc(t *testing.T) {
+	// A command with an argument but no CompletionFunc should return nothing
+	cmd := &Command{
+		Name: "app",
+		Commands: []*Command{
+			GenerateCompletionCommand(),
+			{
+				Name: "run",
+				Arguments: []Argument{
+					&StringArg{Name: "target"},
+				},
+			},
+		},
+	}
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+	os.Args = []string{"app", "completion", "bash", "--arg=app run:0:"}
+	_ = cmd.Execute(nil) //nolint
+	w.Close()
+	os.Stdout = old
+	var buf bytes.Buffer
+	buf.ReadFrom(r)
+	out := buf.String()
+	if strings.TrimSpace(out) != "" {
+		t.Errorf("expected empty output when no CompletionFunc, got: %s", out)
+	}
 }
 
 // ---------------------------------------------------------------------------
