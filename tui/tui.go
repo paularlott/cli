@@ -433,12 +433,15 @@ func (t *TUI) Run(ctx context.Context) error {
 	// Handle terminal resize signals.
 	watchResize(t)
 
-	t.resize()
-	t.draw()
+	fmt.Print("\x1b[?1049h") // enter alternate screen
+	defer fmt.Print("\x1b[?1049l") // leave alternate screen
 
 	// Enable mouse wheel reporting (SGR extended mode) and modifyOtherKeys (for SS3 arrow keys).
 	fmt.Print("\x1b[?1000h\x1b[?1006h\x1b[>4;1m")
 	defer fmt.Print("\x1b[?1006l\x1b[?1000l\x1b[>4;0m")
+
+	t.resize()
+	t.draw()
 
 	go func() {
 		<-ctx.Done()
@@ -476,7 +479,7 @@ func (t *TUI) restore() {
 	if t.oldState != nil {
 		term.Restore(t.fd, t.oldState)
 	}
-	fmt.Print(resetScrollRegion(), clearScreen(), cursorPos(1, 1), showCursor(), reset)
+	fmt.Print(resetScrollRegion(), showCursor(), reset)
 }
 
 func (t *TUI) resize() {
