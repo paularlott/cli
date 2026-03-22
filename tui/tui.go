@@ -475,6 +475,21 @@ func (t *TUI) Run(ctx context.Context) error {
 	return nil
 }
 
+// flashCopied briefly shows "Copied" in the input overlay then clears it.
+func (t *TUI) flashCopied() {
+	t.spinnerText = "✓ Copied"
+	go func() {
+		time.Sleep(1500 * time.Millisecond)
+		t.mu.Lock()
+		if t.spinnerText == "✓ Copied" {
+			t.spinnerText = ""
+			t.output.sel = nil
+			t.draw()
+		}
+		t.mu.Unlock()
+	}()
+}
+
 func (t *TUI) restore() {
 	if t.oldState != nil {
 		term.Restore(t.fd, t.oldState)
@@ -895,11 +910,12 @@ func (t *TUI) handleInput(b []byte) func() {
 								// press: start new selection
 								t.output.sel = &[2]selAnchor{pt, pt}
 							} else {
-								// release: finalise
+								// release: finalise and copy immediately
 								if t.output.sel != nil {
 									t.output.sel[1] = pt
 									if text := t.output.selectionText(); text != "" {
 										fmt.Print(CopyToClipboard(text))
+										t.flashCopied()
 									} else {
 										t.output.sel = nil
 									}
