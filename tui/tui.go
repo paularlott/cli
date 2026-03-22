@@ -437,8 +437,8 @@ func (t *TUI) Run(ctx context.Context) error {
 	defer fmt.Print("\x1b[?1049l") // leave alternate screen
 
 	// Enable mouse wheel reporting (SGR extended mode) and modifyOtherKeys (for SS3 arrow keys).
-	fmt.Print("\x1b[?1000h\x1b[?1006h\x1b[>4;1m")
-	defer fmt.Print("\x1b[?1006l\x1b[?1000l\x1b[>4;0m")
+	fmt.Print("\x1b[?1002h\x1b[?1006h\x1b[>4;1m")
+	defer fmt.Print("\x1b[?1006l\x1b[?1002l\x1b[>4;0m")
 
 	t.resize()
 	t.draw()
@@ -480,6 +480,25 @@ func (t *TUI) restore() {
 		term.Restore(t.fd, t.oldState)
 	}
 	fmt.Print(resetScrollRegion(), showCursor(), reset)
+}
+
+// outputHeight returns the number of rows the output region occupies.
+func (t *TUI) outputHeight() int {
+	inputH := t.inputBoxHeight()
+	paletteH := t.paletteHeight()
+	var bottomH int
+	if t.menu != nil {
+		bottomH = 1 + 10
+	} else if t.inputEnabled() {
+		bottomH = paletteH + inputH
+	} else {
+		bottomH = 1
+	}
+	h := t.height - bottomH
+	if h < 1 {
+		h = 1
+	}
+	return h
 }
 
 func (t *TUI) resize() {
@@ -649,6 +668,12 @@ func (t *TUI) handleInput(b []byte) func() {
 	if len(b) == 1 && b[0] == 3 {
 		t.quit = true
 		return nil
+	}
+
+	// Clear selection on any non-mouse keypress.
+	isMouse := len(b) >= 3 && b[0] == 0x1b && b[1] == '[' && (b[2] == '<' || b[2] == 'M')
+	if !isMouse && t.output.sel != nil {
+		t.output.sel = nil
 	}
 
 	// Menu navigation takes priority.
@@ -851,13 +876,43 @@ func (t *TUI) handleInput(b []byte) func() {
 		if b[2] == '<' {
 			s := string(b[3:])
 			if len(s) > 0 && (s[len(s)-1] == 'M' || s[len(s)-1] == 'm') {
+				release := s[len(s)-1] == 'm'
 				parts := strings.SplitN(s[:len(s)-1], ";", 3)
 				if len(parts) == 3 {
-					switch parts[0] {
+					btn := parts[0]
+					col := atoi(parts[1]) - 1 // 0-based
+					screenRow := atoi(parts[2]) - 1 // 0-based screen row
+					switch btn {
 					case "64": // wheel up
 						t.output.scrollUp(3)
 					case "65": // wheel down
 						t.output.scrollDown(3)
+					case "0": // left button
+						lineIdx := t.output.lastStart + screenRow
+						if screenRow < t.outputHeight() && lineIdx < len(t.output.lastLines) {
+							pt := selAnchor{row: lineIdx, col: col}
+							if !release {
+								// press: start new selection
+								t.output.sel = &[2]selAnchor{pt, pt}
+							} else {
+								// release: finalise
+								if t.output.sel != nil {
+									t.output.sel[1] = pt
+									if text := t.output.selectionText(); text != "" {
+										fmt.Print(CopyToClipboard(text))
+									} else {
+										t.output.sel = nil
+									}
+								}
+							}
+						} else if release {
+							t.output.sel = nil
+						}
+					case "32": // left button drag (motion)
+						lineIdx := t.output.lastStart + screenRow
+						if t.output.sel != nil && screenRow < t.outputHeight() && lineIdx < len(t.output.lastLines) {
+							t.output.sel[1] = selAnchor{row: lineIdx, col: col}
+						}
 					}
 				}
 			}
@@ -1041,4 +1096,15 @@ func (t *TUI) handleInput(b []byte) func() {
 		t.palette.close()
 	}
 	return nil
+}
+
+func atoi(s string) int {
+	n := 0
+	for _, c := range s {
+		if c < '0' || c > '9' {
+			break
+		}
+		n = n*10 + int(c-'0')
+	}
+	return n
 }

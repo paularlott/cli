@@ -5,6 +5,11 @@ import (
 	"unicode/utf8"
 )
 
+// selAnchor is a point in the rendered line grid (0-based).
+type selAnchor struct {
+	row, col int
+}
+
 // MessageRole identifies who sent a message.
 type MessageRole int
 
@@ -28,6 +33,10 @@ type outputRegion struct {
 	assistantLabel string
 	systemLabel    string
 	hideHeaders    bool
+	// selection
+	sel       *[2]selAnchor // nil = no selection; [0]=anchor [1]=current
+	lastLines []string      // rendered lines from last render() call
+	lastStart int           // index into lastLines of first visible row
 }
 
 // AddMessage appends a complete message.
@@ -71,6 +80,9 @@ func (o *outputRegion) Clear() {
 	o.messages = nil
 	o.streaming = nil
 	o.scrollOff = 0
+	o.sel = nil
+	o.lastLines = nil
+	o.lastStart = 0
 }
 
 // SetLabels updates the default role labels.
@@ -109,6 +121,8 @@ func (o *outputRegion) render(buf *strings.Builder, t *Theme, w, height, startRo
 		lines = append(lines, renderMessage(m, t, lineW, o.userLabel, o.assistantLabel, o.systemLabel, o.hideHeaders)...)
 	}
 
+	o.lastLines = lines
+
 	total := len(lines)
 	maxOff := total - height
 	if maxOff < 0 {
@@ -122,9 +136,21 @@ func (o *outputRegion) render(buf *strings.Builder, t *Theme, w, height, startRo
 	if start < 0 {
 		start = 0
 	}
+	o.lastStart = start
 	end := start + height
 	if end > total {
 		end = total
+	}
+
+	// Normalise selection so a0 <= a1.
+	var selA, selB selAnchor
+	hasSelection := o.sel != nil
+	if hasSelection {
+		a, b := o.sel[0], o.sel[1]
+		if a.row > b.row || (a.row == b.row && a.col > b.col) {
+			a, b = b, a
+		}
+		selA, selB = a, b
 	}
 
 	for i := start; i < end; i++ {
@@ -132,13 +158,87 @@ func (o *outputRegion) render(buf *strings.Builder, t *Theme, w, height, startRo
 		buf.WriteString(cursorPos(startRow+row, 1))
 		buf.WriteString(linkReset)
 		buf.WriteString(clearLine())
-		buf.WriteString(truncate(lines[i], lineW))
+		line := truncate(lines[i], lineW)
+		if hasSelection && i >= selA.row && i <= selB.row {
+			line = applyHighlight(line, selA, selB, i, lineW)
+		}
+		buf.WriteString(line)
 	}
 	for i := end - start; i < height; i++ {
 		buf.WriteString(cursorPos(startRow+i, 1))
 		buf.WriteString(linkReset)
 		buf.WriteString(clearLine())
 	}
+}
+
+// applyHighlight wraps the selected column range of a rendered line with reverse video.
+// row, selA, selB are all indices into lastLines (0-based absolute).
+func applyHighlight(line string, selA, selB selAnchor, row, lineW int) string {
+	plain := stripANSI(line)
+	runes := []rune(plain)
+	n := len(runes)
+
+	colStart := 0
+	if row == selA.row {
+		colStart = selA.col
+	}
+	colEnd := n
+	if row == selB.row {
+		colEnd = selB.col + 1
+	}
+	if colStart > n {
+		colStart = n
+	}
+	if colEnd > n {
+		colEnd = n
+	}
+	if colStart >= colEnd {
+		return line
+	}
+
+	var b strings.Builder
+	b.WriteString(string(runes[:colStart]))
+	b.WriteString("\x1b[7m") // reverse video on
+	b.WriteString(string(runes[colStart:colEnd]))
+	b.WriteString("\x1b[27m") // reverse video off
+	b.WriteString(string(runes[colEnd:]))
+	_ = lineW
+	return b.String()
+}
+
+// selectionText returns the plain text covered by the current selection, or "".
+func (o *outputRegion) selectionText() string {
+	if o.sel == nil || len(o.lastLines) == 0 {
+		return ""
+	}
+	a, b := o.sel[0], o.sel[1]
+	if a.row > b.row || (a.row == b.row && a.col > b.col) {
+		a, b = b, a
+	}
+	var parts []string
+	for r := a.row; r <= b.row && r < len(o.lastLines); r++ {
+		plain := stripANSI(o.lastLines[r])
+		runes := []rune(plain)
+		n := len(runes)
+		cs := 0
+		if r == a.row {
+			cs = a.col
+		}
+		ce := n
+		if r == b.row {
+			ce = b.col + 1
+		}
+		if cs > n {
+			cs = n
+		}
+		if ce > n {
+			ce = n
+		}
+		if cs < ce {
+			parts = append(parts, string(runes[cs:ce]))
+		}
+	}
+	return strings.Join(parts, "\n")
 }
 
 // renderMessage converts a message to a slice of pre-rendered lines.

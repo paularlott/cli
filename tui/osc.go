@@ -1,5 +1,7 @@
 package tui
 
+import "encoding/base64"
+
 // OSC (Operating System Command) escape sequence generators.
 // These functions return strings containing OSC sequences that can be
 // printed directly or embedded in TUI messages.
@@ -37,4 +39,14 @@ func SetWindowTitle(title string) string {
 // Supported by: iTerm2, Ghostty, ConEmu.
 func Notify(message string) string {
 	return osc + "9;" + message + st
+}
+
+// CopyToClipboard writes text to the system clipboard via OSC 52.
+// Supported by: iTerm2, Ghostty, kitty, WezTerm, tmux (with set-clipboard on).
+func CopyToClipboard(text string) string {
+	return osc + "52;c;" + base64Encode(text) + st
+}
+
+func base64Encode(s string) string {
+	return base64.StdEncoding.EncodeToString([]byte(s))
 }
