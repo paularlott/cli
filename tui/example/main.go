@@ -62,6 +62,9 @@ func main() {
 						{Name: "spinner", Description: "Show a spinner for 3 seconds"},
 						{Name: "progress", Description: "Animate a progress bar to 100%"},
 						{Name: "addmessageas", Description: "Add a message with a custom label"},
+						{Name: "link", Description: "Show a clickable hyperlink"},
+						{Name: "notify", Description: "Send a desktop notification"},
+						{Name: "title", Description: "Set the window title"},
 					} {
 						b.WriteString(fmt.Sprintf("  /%-14s %s\n", c.Name, c.Description))
 					}
@@ -181,6 +184,46 @@ func main() {
 				Description: "Add a message with a custom label",
 				Handler: func(_ string) {
 					t.AddMessageAs(tui.RoleAssistant, "Custom Model", "Hello from a custom-labelled assistant message!")
+				},
+			},
+			{
+				Name:        "link",
+				Description: "Show a clickable hyperlink",
+				Args:        []string{"github", "google", "example"},
+				Handler: func(args string) {
+					var url, label string
+					switch args {
+					case "github":
+						url = "https://github.com"
+						label = "GitHub"
+					case "google":
+						url = "https://google.com"
+						label = "Google"
+					default:
+						url = "https://example.com"
+						label = "Example"
+					}
+					link := tui.Hyperlink(url, label)
+					t.AddMessage(tui.RoleAssistant, "Click this link: "+link+"\n\nThe link should be clickable in supported terminals (iTerm2, Kitty, WezTerm, etc.).")
+				},
+			},
+			{
+				Name:        "notify",
+				Description: "Send a desktop notification",
+				Handler: func(_ string) {
+					os.Stdout.WriteString(tui.Notify("This is a desktop notification!"))
+					t.AddMessage(tui.RoleSystem, "Notification sent (check your notifications)")
+				},
+			},
+			{
+				Name:        "title",
+				Description: "Set the window title",
+				Handler: func(args string) {
+					if args == "" {
+						args = "TUI Example"
+					}
+					fmt.Print(tui.SetWindowTitle(args))
+					t.AddMessage(tui.RoleSystem, "Window title set to: "+args)
 				},
 			},
 			{

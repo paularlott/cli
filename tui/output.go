@@ -5,6 +5,11 @@ import (
 	"unicode/utf8"
 )
 
+// selAnchor is a point in the rendered line grid (0-based).
+type selAnchor struct {
+	row, col int
+}
+
 // MessageRole identifies who sent a message.
 type MessageRole int
 
@@ -28,6 +33,10 @@ type outputRegion struct {
 	assistantLabel string
 	systemLabel    string
 	hideHeaders    bool
+	// selection
+	sel       *[2]selAnchor // nil = no selection; [0]=anchor [1]=current
+	lastLines []string      // rendered lines from last render() call
+	lastStart int           // index into lastLines of first visible row
 }
 
 // AddMessage appends a complete message.
@@ -71,6 +80,9 @@ func (o *outputRegion) Clear() {
 	o.messages = nil
 	o.streaming = nil
 	o.scrollOff = 0
+	o.sel = nil
+	o.lastLines = nil
+	o.lastStart = 0
 }
 
 // SetLabels updates the default role labels.
@@ -109,6 +121,8 @@ func (o *outputRegion) render(buf *strings.Builder, t *Theme, w, height, startRo
 		lines = append(lines, renderMessage(m, t, lineW, o.userLabel, o.assistantLabel, o.systemLabel, o.hideHeaders)...)
 	}
 
+	o.lastLines = lines
+
 	total := len(lines)
 	maxOff := total - height
 	if maxOff < 0 {
@@ -122,21 +136,109 @@ func (o *outputRegion) render(buf *strings.Builder, t *Theme, w, height, startRo
 	if start < 0 {
 		start = 0
 	}
+	o.lastStart = start
 	end := start + height
 	if end > total {
 		end = total
 	}
 
+	// Normalise selection so a0 <= a1.
+	var selA, selB selAnchor
+	hasSelection := o.sel != nil
+	if hasSelection {
+		a, b := o.sel[0], o.sel[1]
+		if a.row > b.row || (a.row == b.row && a.col > b.col) {
+			a, b = b, a
+		}
+		selA, selB = a, b
+	}
+
 	for i := start; i < end; i++ {
 		row := i - start
 		buf.WriteString(cursorPos(startRow+row, 1))
+		buf.WriteString(linkReset)
 		buf.WriteString(clearLine())
-		buf.WriteString(truncate(lines[i], lineW))
+		line := truncate(lines[i], lineW)
+		if hasSelection && i >= selA.row && i <= selB.row {
+			line = applyHighlight(line, selA, selB, i, lineW)
+		}
+		buf.WriteString(line)
 	}
 	for i := end - start; i < height; i++ {
 		buf.WriteString(cursorPos(startRow+i, 1))
+		buf.WriteString(linkReset)
 		buf.WriteString(clearLine())
 	}
+}
+
+// applyHighlight wraps the selected column range of a rendered line with reverse video.
+// row, selA, selB are all indices into lastLines (0-based absolute).
+func applyHighlight(line string, selA, selB selAnchor, row, lineW int) string {
+	plain := stripANSI(line)
+	runes := []rune(plain)
+	n := len(runes)
+
+	colStart := 0
+	if row == selA.row {
+		colStart = selA.col
+	}
+	colEnd := n
+	if row == selB.row {
+		colEnd = selB.col + 1
+	}
+	if colStart > n {
+		colStart = n
+	}
+	if colEnd > n {
+		colEnd = n
+	}
+	if colStart >= colEnd {
+		return line
+	}
+
+	var b strings.Builder
+	b.WriteString(string(runes[:colStart]))
+	b.WriteString("\x1b[7m") // reverse video on
+	b.WriteString(string(runes[colStart:colEnd]))
+	b.WriteString("\x1b[27m") // reverse video off
+	b.WriteString(string(runes[colEnd:]))
+	_ = lineW
+	return b.String()
+}
+
+// selectionText returns the plain text covered by the current selection, or "".
+func (o *outputRegion) selectionText() string {
+	if o.sel == nil || len(o.lastLines) == 0 {
+		return ""
+	}
+	a, b := o.sel[0], o.sel[1]
+	if a.row > b.row || (a.row == b.row && a.col > b.col) {
+		a, b = b, a
+	}
+	var parts []string
+	for r := a.row; r <= b.row && r < len(o.lastLines); r++ {
+		plain := stripANSI(o.lastLines[r])
+		runes := []rune(plain)
+		n := len(runes)
+		cs := 0
+		if r == a.row {
+			cs = a.col
+		}
+		ce := n
+		if r == b.row {
+			ce = b.col + 1
+		}
+		if cs > n {
+			cs = n
+		}
+		if ce > n {
+			ce = n
+		}
+		if cs < ce {
+			parts = append(parts, string(runes[cs:ce]))
+		}
+	}
+	return strings.Join(parts, "\n")
 }
 
 // renderMessage converts a message to a slice of pre-rendered lines.
@@ -236,45 +338,141 @@ func renderText(text string, t *Theme, role MessageRole, w int) []string {
 	return lines
 }
 
-// wordWrap splits a plain string into lines of at most w runes, breaking on spaces.
+// scanEscape returns the end index of the escape sequence starting at s[i]
+// where s[i] == '\x1b'. i must be a valid index into s.
+func scanEscape(s string, i int) int {
+	i++ // skip ESC
+	if i >= len(s) {
+		return i
+	}
+	switch s[i] {
+	case '[': // CSI: ESC [ ... final-byte (letter)
+		i++
+		for i < len(s) {
+			c := s[i]
+			i++
+			if (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') {
+				break
+			}
+		}
+	case ']': // OSC: ESC ] ... BEL  or  ESC ] ... ST (ESC \)
+		i++
+		for i < len(s) {
+			if s[i] == '\x07' {
+				i++
+				break
+			}
+			if s[i] == '\x1b' && i+1 < len(s) && s[i+1] == '\\' {
+				i += 2
+				break
+			}
+			i++
+		}
+	default: // two-char sequence (SS3, etc.)
+		i++
+	}
+	return i
+}
+
+// wordWrap splits a string into lines of at most w visible runes, breaking on spaces.
+// Escape sequences (CSI and OSC, including hyperlinks) are treated as zero-width.
 func wordWrap(s string, w int) []string {
-	if w <= 0 || utf8.RuneCountInString(s) <= w {
+	if w <= 0 || visibleLen(s) <= w {
 		return []string{s}
 	}
+	tokens := splitTokens(s)
 	var lines []string
-	words := strings.Fields(s)
-	if len(words) == 0 {
-		return []string{s}
-	}
 	current := ""
-	for _, word := range words {
-		wl := utf8.RuneCountInString(word)
+	currentW := 0
+	for _, tok := range tokens {
+		if tok == " " {
+			if current != "" {
+				current += " "
+				currentW++
+			}
+			continue
+		}
+		tokW := visibleLen(tok)
 		if current == "" {
-			if wl > w {
-				// Single word longer than width — hard break it.
-				runes := []rune(word)
-				for len(runes) > 0 {
-					chunk := w
-					if chunk > len(runes) {
-						chunk = len(runes)
-					}
-					lines = append(lines, string(runes[:chunk]))
-					runes = runes[chunk:]
-				}
+			if tokW > w {
+				lines = append(lines, splitHardWrap(tok, w)...)
 				continue
 			}
-			current = word
-		} else if utf8.RuneCountInString(current)+1+wl <= w {
-			current += " " + word
+			current = tok
+			currentW = tokW
+		} else if currentW+1+tokW <= w {
+			current += tok
+			currentW += tokW
 		} else {
-			lines = append(lines, current)
-			current = word
+			lines = append(lines, strings.TrimRight(current, " "))
+			current = tok
+			currentW = tokW
 		}
 	}
 	if current != "" {
-		lines = append(lines, current)
+		lines = append(lines, strings.TrimRight(current, " "))
 	}
 	return lines
+}
+
+// splitTokens splits s into space tokens (" ") and non-space tokens, keeping
+// escape sequences attached to adjacent visible text.
+func splitTokens(s string) []string {
+	var tokens []string
+	var cur strings.Builder
+	i := 0
+	for i < len(s) {
+		if s[i] == ' ' {
+			if cur.Len() > 0 {
+				tokens = append(tokens, cur.String())
+				cur.Reset()
+			}
+			tokens = append(tokens, " ")
+			i++
+			continue
+		}
+		if s[i] == '\x1b' {
+			end := scanEscape(s, i)
+			cur.WriteString(s[i:end])
+			i = end
+			continue
+		}
+		cur.WriteByte(s[i])
+		i++
+	}
+	if cur.Len() > 0 {
+		tokens = append(tokens, cur.String())
+	}
+	return tokens
+}
+
+// splitHardWrap hard-breaks s at w visible runes per line.
+func splitHardWrap(s string, w int) []string {
+	var lines []string
+	for visibleLen(s) > w {
+		lines = append(lines, truncate(s, w))
+		s = skipVisible(s, w)
+	}
+	if s != "" {
+		lines = append(lines, s)
+	}
+	return lines
+}
+
+// skipVisible advances past n visible runes in s, skipping escape sequences.
+func skipVisible(s string, n int) string {
+	count := 0
+	i := 0
+	for i < len(s) && count < n {
+		if s[i] == '\x1b' {
+			i = scanEscape(s, i)
+			continue
+		}
+		_, size := utf8.DecodeRuneInString(s[i:])
+		i += size
+		count++
+	}
+	return s[i:]
 }
 
 func renderCodeBlock(code string, t *Theme, w int) []string {
@@ -298,21 +496,27 @@ func renderCodeBlock(code string, t *Theme, w int) []string {
 	return lines
 }
 
-// truncate trims a potentially ANSI-escaped string to at most n visible runes.
+// truncate trims s to at most n visible runes, preserving escape sequences.
 func truncate(s string, n int) string {
-	// Simple approach: strip ANSI then measure; if short enough return as-is.
 	if visibleLen(s) <= n {
 		return s
 	}
-	return truncatePlain(stripANSI(s), n)
-}
-
-func truncatePlain(s string, n int) string {
-	runes := []rune(s)
-	if len(runes) <= n {
-		return s
+	var b strings.Builder
+	count := 0
+	i := 0
+	for i < len(s) && count < n {
+		if s[i] == '\x1b' {
+			end := scanEscape(s, i)
+			b.WriteString(s[i:end])
+			i = end
+			continue
+		}
+		_, size := utf8.DecodeRuneInString(s[i:])
+		b.WriteString(s[i : i+size])
+		i += size
+		count++
 	}
-	return string(runes[:n])
+	return b.String()
 }
 
 func visibleLen(s string) int {
@@ -321,19 +525,14 @@ func visibleLen(s string) int {
 
 func stripANSI(s string) string {
 	var b strings.Builder
-	inEsc := false
-	for _, r := range s {
-		if inEsc {
-			if (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') {
-				inEsc = false
-			}
+	i := 0
+	for i < len(s) {
+		if s[i] == '\x1b' {
+			i = scanEscape(s, i)
 			continue
 		}
-		if r == '\x1b' {
-			inEsc = true
-			continue
-		}
-		b.WriteRune(r)
+		b.WriteByte(s[i])
+		i++
 	}
 	return b.String()
 }
