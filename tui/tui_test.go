@@ -352,10 +352,39 @@ func TestAddMessageAs(t *testing.T) {
 // --- render helpers ---
 
 func TestStripANSI(t *testing.T) {
+	// CSI sequences
 	s := "\x1b[38;2;255;0;0mhello\x1b[0m"
 	got := stripANSI(s)
 	if got != "hello" {
-		t.Errorf("stripANSI: %q", got)
+		t.Errorf("stripANSI CSI: %q", got)
+	}
+
+	// OSC sequences with ST terminator (hyperlink)
+	osc := "\x1b]8;;https://example.com\x1b\\Click here\x1b]8;;\x1b\\"
+	got = stripANSI(osc)
+	if got != "Click here" {
+		t.Errorf("stripANSI OSC hyperlink (ST): %q", got)
+	}
+
+	// OSC sequences with BEL terminator (also supported)
+	oscBel := "\x1b]8;;https://example.com\x07Click here\x1b]8;;\x07"
+	got = stripANSI(oscBel)
+	if got != "Click here" {
+		t.Errorf("stripANSI OSC hyperlink (BEL): %q", got)
+	}
+
+	// OSC notification with ST
+	oscNotify := "\x1b]9;Hello world\x1b\\"
+	got = stripANSI(oscNotify)
+	if got != "" {
+		t.Errorf("stripANSI OSC notify: %q", got)
+	}
+
+	// Mixed CSI and OSC
+	mixed := "\x1b[1m\x1b]8;;https://test.com\x1b\\Link\x1b]8;;\x1b\\\x1b[0m"
+	got = stripANSI(mixed)
+	if got != "Link" {
+		t.Errorf("stripANSI mixed: %q", got)
 	}
 }
 

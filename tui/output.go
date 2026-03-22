@@ -130,11 +130,13 @@ func (o *outputRegion) render(buf *strings.Builder, t *Theme, w, height, startRo
 	for i := start; i < end; i++ {
 		row := i - start
 		buf.WriteString(cursorPos(startRow+row, 1))
+		buf.WriteString(linkReset)
 		buf.WriteString(clearLine())
 		buf.WriteString(truncate(lines[i], lineW))
 	}
 	for i := end - start; i < height; i++ {
 		buf.WriteString(cursorPos(startRow+i, 1))
+		buf.WriteString(linkReset)
 		buf.WriteString(clearLine())
 	}
 }
@@ -236,45 +238,141 @@ func renderText(text string, t *Theme, role MessageRole, w int) []string {
 	return lines
 }
 
-// wordWrap splits a plain string into lines of at most w runes, breaking on spaces.
+// scanEscape returns the end index of the escape sequence starting at s[i]
+// where s[i] == '\x1b'. i must be a valid index into s.
+func scanEscape(s string, i int) int {
+	i++ // skip ESC
+	if i >= len(s) {
+		return i
+	}
+	switch s[i] {
+	case '[': // CSI: ESC [ ... final-byte (letter)
+		i++
+		for i < len(s) {
+			c := s[i]
+			i++
+			if (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') {
+				break
+			}
+		}
+	case ']': // OSC: ESC ] ... BEL  or  ESC ] ... ST (ESC \)
+		i++
+		for i < len(s) {
+			if s[i] == '\x07' {
+				i++
+				break
+			}
+			if s[i] == '\x1b' && i+1 < len(s) && s[i+1] == '\\' {
+				i += 2
+				break
+			}
+			i++
+		}
+	default: // two-char sequence (SS3, etc.)
+		i++
+	}
+	return i
+}
+
+// wordWrap splits a string into lines of at most w visible runes, breaking on spaces.
+// Escape sequences (CSI and OSC, including hyperlinks) are treated as zero-width.
 func wordWrap(s string, w int) []string {
-	if w <= 0 || utf8.RuneCountInString(s) <= w {
+	if w <= 0 || visibleLen(s) <= w {
 		return []string{s}
 	}
+	tokens := splitTokens(s)
 	var lines []string
-	words := strings.Fields(s)
-	if len(words) == 0 {
-		return []string{s}
-	}
 	current := ""
-	for _, word := range words {
-		wl := utf8.RuneCountInString(word)
+	currentW := 0
+	for _, tok := range tokens {
+		if tok == " " {
+			if current != "" {
+				current += " "
+				currentW++
+			}
+			continue
+		}
+		tokW := visibleLen(tok)
 		if current == "" {
-			if wl > w {
-				// Single word longer than width — hard break it.
-				runes := []rune(word)
-				for len(runes) > 0 {
-					chunk := w
-					if chunk > len(runes) {
-						chunk = len(runes)
-					}
-					lines = append(lines, string(runes[:chunk]))
-					runes = runes[chunk:]
-				}
+			if tokW > w {
+				lines = append(lines, splitHardWrap(tok, w)...)
 				continue
 			}
-			current = word
-		} else if utf8.RuneCountInString(current)+1+wl <= w {
-			current += " " + word
+			current = tok
+			currentW = tokW
+		} else if currentW+1+tokW <= w {
+			current += tok
+			currentW += tokW
 		} else {
-			lines = append(lines, current)
-			current = word
+			lines = append(lines, strings.TrimRight(current, " "))
+			current = tok
+			currentW = tokW
 		}
 	}
 	if current != "" {
-		lines = append(lines, current)
+		lines = append(lines, strings.TrimRight(current, " "))
 	}
 	return lines
+}
+
+// splitTokens splits s into space tokens (" ") and non-space tokens, keeping
+// escape sequences attached to adjacent visible text.
+func splitTokens(s string) []string {
+	var tokens []string
+	var cur strings.Builder
+	i := 0
+	for i < len(s) {
+		if s[i] == ' ' {
+			if cur.Len() > 0 {
+				tokens = append(tokens, cur.String())
+				cur.Reset()
+			}
+			tokens = append(tokens, " ")
+			i++
+			continue
+		}
+		if s[i] == '\x1b' {
+			end := scanEscape(s, i)
+			cur.WriteString(s[i:end])
+			i = end
+			continue
+		}
+		cur.WriteByte(s[i])
+		i++
+	}
+	if cur.Len() > 0 {
+		tokens = append(tokens, cur.String())
+	}
+	return tokens
+}
+
+// splitHardWrap hard-breaks s at w visible runes per line.
+func splitHardWrap(s string, w int) []string {
+	var lines []string
+	for visibleLen(s) > w {
+		lines = append(lines, truncate(s, w))
+		s = skipVisible(s, w)
+	}
+	if s != "" {
+		lines = append(lines, s)
+	}
+	return lines
+}
+
+// skipVisible advances past n visible runes in s, skipping escape sequences.
+func skipVisible(s string, n int) string {
+	count := 0
+	i := 0
+	for i < len(s) && count < n {
+		if s[i] == '\x1b' {
+			i = scanEscape(s, i)
+			continue
+		}
+		_, size := utf8.DecodeRuneInString(s[i:])
+		i += size
+		count++
+	}
+	return s[i:]
 }
 
 func renderCodeBlock(code string, t *Theme, w int) []string {
@@ -298,21 +396,27 @@ func renderCodeBlock(code string, t *Theme, w int) []string {
 	return lines
 }
 
-// truncate trims a potentially ANSI-escaped string to at most n visible runes.
+// truncate trims s to at most n visible runes, preserving escape sequences.
 func truncate(s string, n int) string {
-	// Simple approach: strip ANSI then measure; if short enough return as-is.
 	if visibleLen(s) <= n {
 		return s
 	}
-	return truncatePlain(stripANSI(s), n)
-}
-
-func truncatePlain(s string, n int) string {
-	runes := []rune(s)
-	if len(runes) <= n {
-		return s
+	var b strings.Builder
+	count := 0
+	i := 0
+	for i < len(s) && count < n {
+		if s[i] == '\x1b' {
+			end := scanEscape(s, i)
+			b.WriteString(s[i:end])
+			i = end
+			continue
+		}
+		_, size := utf8.DecodeRuneInString(s[i:])
+		b.WriteString(s[i : i+size])
+		i += size
+		count++
 	}
-	return string(runes[:n])
+	return b.String()
 }
 
 func visibleLen(s string) int {
@@ -321,19 +425,14 @@ func visibleLen(s string) int {
 
 func stripANSI(s string) string {
 	var b strings.Builder
-	inEsc := false
-	for _, r := range s {
-		if inEsc {
-			if (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') {
-				inEsc = false
-			}
+	i := 0
+	for i < len(s) {
+		if s[i] == '\x1b' {
+			i = scanEscape(s, i)
 			continue
 		}
-		if r == '\x1b' {
-			inEsc = true
-			continue
-		}
-		b.WriteRune(r)
+		b.WriteByte(s[i])
+		i++
 	}
 	return b.String()
 }
