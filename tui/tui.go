@@ -436,10 +436,9 @@ func (t *TUI) Run(ctx context.Context) error {
 	t.resize()
 	t.draw()
 
-	// modifyOtherKeys for SS3 arrow keys — no mouse reporting so text selection
-	// and OSC 8 hyperlink clicks work natively in the terminal.
-	fmt.Print("\x1b[>4;1m")
-	defer fmt.Print("\x1b[>4;0m")
+	// Enable mouse wheel reporting (SGR extended mode) and modifyOtherKeys (for SS3 arrow keys).
+	fmt.Print("\x1b[?1000h\x1b[?1006h\x1b[>4;1m")
+	defer fmt.Print("\x1b[?1006l\x1b[?1000l\x1b[>4;0m")
 
 	go func() {
 		<-ctx.Done()
