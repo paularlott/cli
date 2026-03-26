@@ -100,6 +100,10 @@ type Config struct {
 	// When false, the input box, char count, and palette are hidden and
 	// keyboard input only handles scrolling and Ctrl+C.
 	InputEnabled *bool
+
+	// OnFocusChange is called when panel focus changes via Tab cycling.
+	// The callback receives the newly focused panel.
+	OnFocusChange func(panel *Panel)
 }
 
 var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
@@ -266,20 +270,13 @@ func (t *TUI) WriteString(s string) {
 	t.mainPanel.WriteString(s)
 }
 
-// refresh redraws the screen.
-func (t *TUI) refresh() {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	t.draw()
-}
-
 // SetLabels updates the default role labels shown in message headers.
 // Empty strings leave the corresponding label unchanged.
 func (t *TUI) SetLabels(user, assistant, system string) {
 	t.mu.Lock()
+	defer t.mu.Unlock()
 	t.output.SetLabels(user, assistant, system)
-	t.mu.Unlock()
-	t.refresh()
+	t.draw()
 }
 
 // SetStatus updates both status bar texts.
@@ -488,29 +485,106 @@ func (t *TUI) SetLayout(cfg LayoutConfig) {
 
 // FocusPanel sets the focused panel by index.
 func (t *TUI) FocusPanel(idx int) {
+	var cb func(*Panel)
+	var panel *Panel
+
 	t.mu.Lock()
-	defer t.mu.Unlock()
-
 	visible := t.countFocusablePanels()
-
-	if idx >= 0 && idx < visible {
+	if idx >= 0 && idx < visible && idx != t.focusIdx {
 		t.focusIdx = idx
 		t.draw()
+		if t.cfg.OnFocusChange != nil {
+			cb = t.cfg.OnFocusChange
+			panel = t.focusedPanelPtr()
+		}
+	}
+	t.mu.Unlock()
+
+	if cb != nil && panel != nil {
+		cb(panel)
 	}
 }
 
-// FocusedPanel returns the index of the focused panel (0=left, 1=main, 2=right).
-func (t *TUI) FocusedPanel() int {
+// FocusedPanel returns the currently focused panel.
+// Returns nil if no panel is focused (shouldn't happen in normal use).
+func (t *TUI) FocusedPanel() *Panel {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
-	return t.focusIdx
+	return t.focusedPanelPtr()
+}
+
+// focusedPanelPtr returns the focused panel's *Panel. Must be called with t.mu held.
+func (t *TUI) focusedPanelPtr() *Panel {
+	idx := 0
+
+	// Helper to check focus match and return panel
+	checkFocus := func(cfg *PanelConfig) *Panel {
+		if cfg.SkipFocus {
+			return nil
+		}
+		if t.focusIdx == idx {
+			return t.panels[cfg.Name]
+		}
+		idx++
+		return nil
+	}
+
+	// Check left panel and its children
+	if t.layout.Left != nil {
+		if t.layout.Left.Top != nil {
+			if p := checkFocus(t.layout.Left.Top); p != nil {
+				return p
+			}
+		}
+		if t.layout.Left.Bottom != nil {
+			if p := checkFocus(t.layout.Left.Bottom); p != nil {
+				return p
+			}
+		}
+		if t.layout.Left.Top == nil && t.layout.Left.Bottom == nil {
+			if p := checkFocus(t.layout.Left); p != nil {
+				return p
+			}
+		}
+	}
+
+	// Main panel (always focusable)
+	if t.focusIdx == idx {
+		return t.mainPanel
+	}
+	idx++
+
+	// Check right panel and its children
+	if t.layout.Right != nil {
+		if t.layout.Right.Top != nil {
+			if p := checkFocus(t.layout.Right.Top); p != nil {
+				return p
+			}
+		}
+		if t.layout.Right.Bottom != nil {
+			if p := checkFocus(t.layout.Right.Bottom); p != nil {
+				return p
+			}
+		}
+		if t.layout.Right.Top == nil && t.layout.Right.Bottom == nil {
+			if p := checkFocus(t.layout.Right); p != nil {
+				return p
+			}
+		}
+	}
+
+	// Default to main panel
+	return t.mainPanel
 }
 
 // CycleFocus moves focus to the next panel.
 func (t *TUI) CycleFocus() {
 	t.mu.Lock()
-	defer t.mu.Unlock()
-	t.cycleFocusLocked()
+	cb := t.cycleFocusLocked()
+	t.mu.Unlock()
+	if cb != nil {
+		cb()
+	}
 }
 
 // countFocusablePanels counts all focusable panels including children.
@@ -546,10 +620,17 @@ func (t *TUI) countPanelChildren(cfg *PanelConfig) int {
 }
 
 // cycleFocusLocked moves focus to the next panel. Must be called with t.mu held.
-func (t *TUI) cycleFocusLocked() {
+// Returns a callback to invoke after releasing the lock, or nil.
+func (t *TUI) cycleFocusLocked() func() {
 	visible := t.countFocusablePanels()
 	t.focusIdx = (t.focusIdx + 1) % visible
 	t.draw()
+
+	if t.cfg.OnFocusChange != nil {
+		panel := t.focusedPanelPtr()
+		return func() { t.cfg.OnFocusChange(panel) }
+	}
+	return nil
 }
 
 // hasMultiplePanels returns true if there's more than one visible panel.

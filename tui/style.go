@@ -1,5 +1,15 @@
 package tui
 
+// Theme color names for use with Panel.StyledWith.
+const (
+	ThemePrimary   = "primary"
+	ThemeSecondary = "secondary"
+	ThemeError     = "error"
+	ThemeDim       = "dim"
+	ThemeText      = "text"
+	ThemeUser      = "user"
+)
+
 // Styled returns text wrapped in the given color, reset after.
 // Use the theme color fields directly: t.Theme().Primary, t.Theme().Secondary, etc.
 func Styled(color Color, text string) string {

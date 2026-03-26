@@ -147,7 +147,7 @@ func pumpLogs(ctx context.Context, logs *tui.Panel) {
 			return
 		case ts := <-ticker.C:
 			msg := logMessages[rand.Intn(len(logMessages))]
-			line := logs.StyledWith("dim", ts.Format("15:04:05")) + " " + msg
+			line := logs.StyledWith(tui.ThemeDim, ts.Format("15:04:05")) + " " + msg
 			logs.WriteString(line + "\n")
 		}
 	}
@@ -176,7 +176,7 @@ func updateCPUStats(ctx context.Context, panel *tui.Panel) {
 			filled := int(cpu / 100 * float64(barWidth))
 			bar := strings.Repeat("█", filled) + strings.Repeat("░", barWidth-filled)
 
-			content := panel.StyledWith("primary", "CPU Usage") + "\n\n" +
+			content := panel.StyledWith(tui.ThemePrimary, "CPU Usage") + "\n\n" +
 				fmt.Sprintf("  %s\n\n", bar) +
 				fmt.Sprintf("  %.0f%%", cpu)
 			panel.SetContent(content)
@@ -207,7 +207,7 @@ func updateMemStats(ctx context.Context, panel *tui.Panel) {
 			filled := int(mem / 100 * float64(barWidth))
 			bar := strings.Repeat("█", filled) + strings.Repeat("░", barWidth-filled)
 
-			content := panel.StyledWith("primary", "Memory Usage") + "\n\n" +
+			content := panel.StyledWith(tui.ThemePrimary, "Memory Usage") + "\n\n" +
 				fmt.Sprintf("  %s\n\n", bar) +
 				fmt.Sprintf("  %.0f%%", mem)
 			panel.SetContent(content)

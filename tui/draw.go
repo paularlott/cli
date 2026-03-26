@@ -792,7 +792,7 @@ func (t *TUI) handleInput(b []byte) func() {
 			}
 		} else if t.hasMultiplePanels() {
 			// Cycle panel focus
-			t.cycleFocusLocked()
+			return t.cycleFocusLocked()
 		}
 		return nil
 	}
