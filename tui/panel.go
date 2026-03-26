@@ -429,6 +429,9 @@ func (p *Panel) SetScrollable(scrollable bool) {
 	p.mu.Lock()
 	p.scrollable = scrollable
 	p.mu.Unlock()
+	if p.tui != nil {
+		p.tui.redraw()
+	}
 }
 
 // Scrollable returns whether the panel is scrollable.
