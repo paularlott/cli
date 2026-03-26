@@ -19,6 +19,73 @@ A full-screen terminal UI framework for building interactive CLI applications �
 
 The input box top border carries the spinner, progress bar, scroll hint, or `StatusRight` text (in that priority order). `StatusLeft` is embedded in the bottom border.
 
+### Multi-Panel Layout
+
+The TUI supports horizontal panel splits for side-by-side content:
+
+```
+┌─ logs ───┬─ main ──────────────────────┬─ stats ──┐
+│          │                             │          │
+│ [INFO]   │ Chat content here           │ CPU: 45% │
+│ [WARN]   │                             │ MEM: 60% │
+│          │                             │          │
+└──────────┴─────────────────────────────┴──────────┘
+```
+
+Configure panels with `SetLayout`:
+
+```go
+t.SetLayout(tui.LayoutConfig{
+    Left: &tui.PanelConfig{
+        Name:       "logs",
+        Width:      -25,       // 25% of terminal width (negative = percentage)
+        Scrollable: true,
+        Title:      "Logs",
+    },
+    Right: &tui.PanelConfig{
+        Name:       "stats",
+        Width:      20,        // 20 columns (positive = fixed)
+        Scrollable: false,     // Fixed content, overwrites on update
+        Title:      "Stats",
+        NoBorder:   false,     // Set true to hide border
+    },
+})
+```
+
+Get a panel reference and write to it:
+
+```go
+logs := t.Panel("logs")
+logs.WriteString("[INFO] Server started\n")
+logs.WriteString(logs.StyledWith("error", "[ERROR]") + " Connection failed\n")
+
+stats := t.Panel("stats")
+stats.SetContent("CPU: 45%\nMEM: 60%")  // Replaces all content
+
+main := t.Panel("main")  // Main panel always exists
+main.AddMessage(tui.RoleUser, "Hello!")
+```
+
+**Panel features:**
+
+- All panels (including main) support `AddMessage`, `StartStreaming`, etc.
+- `WriteString` for raw text with ANSI passthrough
+- `SetContent` to replace content entirely (useful for fixed panels)
+- `WriteAt(row, col, text)` for positioned writes
+- `SetTitle("")` to remove title (unnamed panel)
+- `SetBorder(false)` to hide border
+- `SetColor(color)` for border accent
+- `Styled` and `StyledWith` for themed colors
+
+**Navigation:**
+
+- `Tab` cycles focus through visible panels
+- Focused panel has highlighted border
+- `Page Up/Down` scrolls the focused panel
+- Mouse wheel scrolls the panel under cursor
+
+See `tui/example-panels` for a complete demo.
+
 ## Quick Start
 
 ```go
@@ -385,8 +452,8 @@ tui.RegisterTheme(myTheme)
 | `Ctrl+K`       | Delete to end of line                                                                        |
 | `Ctrl+U`       | Delete to start of line                                                                      |
 | `Ctrl+W`       | Delete word before cursor                                                                    |
-| `Page Up/Down` | Scroll output half a page                                                                    |
-| Mouse wheel    | Scroll output 3 lines                                                                        |
-| `Tab`          | Complete selected palette command/arg                                                        |
+| `Page Up/Down` | Scroll focused panel half a page                                                             |
+| Mouse wheel    | Scroll panel under cursor 3 lines                                                            |
+| `Tab`          | Complete palette command/arg, or cycle panel focus when palette closed                       |
 | `Esc`          | Close palette / fire `OnEscape`                                                              |
 | `Ctrl+C`       | Exit                                                                                         |

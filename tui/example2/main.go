@@ -81,7 +81,7 @@ func pump(ctx context.Context, t *tui.TUI) {
 			msg := messages[rand.Intn(len(messages))]
 			line := tui.Styled(lvl.color, lvl.label) + "  " +
 				tui.Styled(0x6C6F85, ts.Format("15:04:05")) + "  " + msg
-			t.AddMessage(lvl.role, line)
+			t.WriteString(line + "\n")
 		}
 	}
 }

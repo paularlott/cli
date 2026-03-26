@@ -3,10 +3,12 @@ package tui
 import (
 	"fmt"
 	"strings"
+	"unicode/utf8"
 )
 
 func (t *TUI) draw() {
-	t.resize()
+	// Clear screen on resize or output height change to avoid artifacts
+	terminalResized := t.resize()
 
 	inputH := t.inputBoxHeight()
 	paletteH := t.paletteHeight()
@@ -24,11 +26,30 @@ func (t *TUI) draw() {
 		outputH = 1
 	}
 
+	// Clear screen if terminal resized or output area height changed
+	if terminalResized || outputH != t.prevOutputH {
+		fmt.Print("\x1b[2J")
+		t.prevOutputH = outputH
+	}
+
 	var buf strings.Builder
 	buf.WriteString(hideCursor())
 
-	// Output region.
-	t.output.render(&buf, t.theme, t.width, outputH, 1)
+	// Check if we have a multi-panel layout
+	hasLeft := t.layout.Left != nil
+	hasRight := t.layout.Right != nil
+	multiPanel := hasLeft || hasRight
+
+	if multiPanel {
+		t.drawPanels(&buf, outputH)
+	} else {
+		// Single panel mode - render through main panel to support raw mode
+		if t.mainPanel.rawMode {
+			t.mainPanel.render(&buf, t.theme, t.width, outputH, 1, 1, true)
+		} else {
+			t.output.render(&buf, t.theme, t.width, outputH, 1)
+		}
+	}
 
 	row := outputH + 1
 
@@ -39,10 +60,7 @@ func (t *TUI) draw() {
 		buf.WriteString(clearLine())
 		if t.output.scrollOff > 0 {
 			scrollHint := "↑ scrolled · scroll down to follow"
-			sepW := t.width - visibleLen(scrollHint) - 2
-			if sepW < 0 {
-				sepW = 0
-			}
+			sepW := max(0, t.width-visibleLen(scrollHint)-2)
 			buf.WriteString(fg(t.theme.Dim) + strings.Repeat("─", sepW) + " " + reset + fg(t.theme.Primary) + scrollHint + " " + reset)
 		} else if !t.inputEnabled() && (t.cfg.StatusLeft != "" || t.cfg.StatusRight != "") {
 			// Embed status into the separator line.
@@ -50,24 +68,15 @@ func (t *TUI) draw() {
 			case t.cfg.StatusLeft != "" && t.cfg.StatusRight != "":
 				left := " " + t.cfg.StatusLeft + " "
 				right := " " + t.cfg.StatusRight + " "
-				dashW := t.width - visibleLen(left) - visibleLen(right)
-				if dashW < 0 {
-					dashW = 0
-				}
+				dashW := max(0, t.width-visibleLen(left)-visibleLen(right))
 				buf.WriteString(fg(t.theme.Primary) + left + reset + fg(t.theme.Dim) + strings.Repeat("─", dashW) + reset + fg(t.theme.Primary) + right + reset)
 			case t.cfg.StatusLeft != "":
 				left := " " + t.cfg.StatusLeft + " "
-				dashW := t.width - visibleLen(left)
-				if dashW < 0 {
-					dashW = 0
-				}
+				dashW := max(0, t.width-visibleLen(left))
 				buf.WriteString(fg(t.theme.Primary) + left + reset + fg(t.theme.Dim) + strings.Repeat("─", dashW) + reset)
 			case t.cfg.StatusRight != "":
 				right := " " + t.cfg.StatusRight + " "
-				dashW := t.width - visibleLen(right)
-				if dashW < 0 {
-					dashW = 0
-				}
+				dashW := max(0, t.width-visibleLen(right))
 				buf.WriteString(fg(t.theme.Dim) + strings.Repeat("─", dashW) + reset + fg(t.theme.Primary) + right + reset)
 			}
 		} else {
@@ -119,6 +128,373 @@ func (t *TUI) draw() {
 	}
 
 	fmt.Print(buf.String())
+}
+
+// panelLayout holds computed panel dimensions
+type panelLayout struct {
+	name      string
+	panel     *Panel
+	x         int // starting column (0-based)
+	y         int // starting row (0-based, relative to panel area)
+	width     int // content width (excluding borders)
+	height    int // content height (excluding borders)
+	hasBorder bool
+	focused   bool
+	children  []panelLayout // for horizontal splits (top/bottom)
+}
+
+// drawPanels renders multiple panels side by side with borders
+func (t *TUI) drawPanels(buf *strings.Builder, height int) {
+	// Build list of visible panels
+	var panels []panelLayout
+	remainingWidth := t.width
+	currentFocusIdx := 0 // Track position in focus cycle
+
+	// Calculate widths and determine visibility
+	if t.layout.Left != nil {
+		cfg := t.layout.Left
+		w := t.calculatePanelWidth(cfg.Width, remainingWidth)
+		minW := cfg.MinWidth
+		if minW == 0 {
+			minW = 2 // default minimum
+		}
+		if w >= minW {
+			p := t.panels[cfg.Name]
+			if p == nil {
+				p = t.createPanel(*cfg)
+				t.panels[cfg.Name] = p
+			}
+			hasBorder := !cfg.NoBorder
+			pl := panelLayout{
+				name: cfg.Name, panel: p, width: w, height: height, hasBorder: hasBorder,
+			}
+			// Handle horizontal split (top/bottom children)
+			if cfg.Top != nil || cfg.Bottom != nil {
+				pl.children = t.buildChildPanels(cfg, w, height, &currentFocusIdx)
+			} else {
+				pl.focused = t.focusIdx == currentFocusIdx
+				currentFocusIdx++
+			}
+			panels = append(panels, pl)
+			remainingWidth -= w
+			if hasBorder {
+				remainingWidth -= 2 // left and right border columns
+			}
+		}
+	}
+
+	// Main panel always visible
+	mainFocusIdx := currentFocusIdx
+	panels = append(panels, panelLayout{
+		name: "main", panel: t.mainPanel, width: 0, height: height, hasBorder: false,
+		focused: t.focusIdx == currentFocusIdx,
+	})
+	currentFocusIdx++
+
+	// Right panel
+	if t.layout.Right != nil {
+		cfg := t.layout.Right
+		w := t.calculatePanelWidth(cfg.Width, remainingWidth)
+		minW := cfg.MinWidth
+		if minW == 0 {
+			minW = 2 // default minimum
+		}
+		if w >= minW {
+			p := t.panels[cfg.Name]
+			if p == nil {
+				p = t.createPanel(*cfg)
+				t.panels[cfg.Name] = p
+			}
+			hasBorder := !cfg.NoBorder
+			pl := panelLayout{
+				name: cfg.Name, panel: p, width: w, height: height, hasBorder: hasBorder,
+			}
+			// Handle horizontal split (top/bottom children)
+			if cfg.Top != nil || cfg.Bottom != nil {
+				pl.children = t.buildChildPanels(cfg, w, height, &currentFocusIdx)
+			} else {
+				pl.focused = t.focusIdx == currentFocusIdx
+				currentFocusIdx++
+			}
+			panels = append(panels, pl)
+			remainingWidth -= w
+			if hasBorder {
+				remainingWidth -= 2 // left and right border columns
+			}
+		}
+	}
+
+	// Assign remaining width to main panel
+	panels[mainFocusIdx].width = remainingWidth
+	if panels[mainFocusIdx].width < 2 {
+		panels[mainFocusIdx].width = 2
+	}
+
+	// Calculate x positions
+	x := 0
+	for i := range panels {
+		panels[i].x = x
+		if panels[i].hasBorder {
+			x += panels[i].width + 2 // content width + left border + right border
+		} else {
+			x += panels[i].width
+		}
+	}
+
+	// Draw panel borders (top line with titles)
+	// Skip drawing top border for panels with children - children have their own borders
+	for _, pl := range panels {
+		if pl.hasBorder && len(pl.children) == 0 {
+			t.drawPanelTopBorder(buf, pl)
+		}
+	}
+
+	// Draw panel content
+	for _, pl := range panels {
+		if len(pl.children) > 0 {
+			// Render child panels with horizontal split
+			t.drawChildPanels(buf, pl, height)
+		} else {
+			t.drawSinglePanel(buf, pl, height)
+		}
+	}
+}
+
+// buildChildPanels creates child panel layouts for horizontal splits
+func (t *TUI) buildChildPanels(cfg *PanelConfig, width, totalHeight int, currentFocusIdx *int) []panelLayout {
+	var children []panelLayout
+
+	// Children use full height - no parent border to account for
+	availableHeight := totalHeight
+	if availableHeight < 2 {
+		availableHeight = 2
+	}
+
+	// Calculate heights for top and bottom
+	var topH, bottomH int
+	if cfg.Top != nil && cfg.Bottom != nil {
+		// Both specified - split based on Height config
+		if cfg.Top.Height < 0 {
+			// Percentage
+			topH = (availableHeight * (-cfg.Top.Height)) / 100
+		} else if cfg.Top.Height > 0 {
+			topH = cfg.Top.Height
+		} else {
+			topH = availableHeight / 2
+		}
+		// No gap between panels
+		bottomH = availableHeight - topH
+		if bottomH < 1 {
+			bottomH = 1
+			topH = availableHeight - 1
+		}
+	} else if cfg.Top != nil {
+		topH = availableHeight
+		bottomH = 0
+	} else if cfg.Bottom != nil {
+		topH = 0
+		bottomH = availableHeight
+	}
+
+	// Build top child - each child has its own border
+	if cfg.Top != nil && topH > 0 {
+		p := t.panels[cfg.Top.Name]
+		if p == nil {
+			p = t.createPanel(*cfg.Top)
+			t.panels[cfg.Top.Name] = p
+		}
+		children = append(children, panelLayout{
+			name:      cfg.Top.Name,
+			panel:     p,
+			width:     width,
+			height:    topH,
+			hasBorder: !cfg.Top.NoBorder, // Children have their own borders
+			focused:   t.focusIdx == *currentFocusIdx,
+		})
+		*currentFocusIdx++
+	}
+
+	// Build bottom child - each child has its own border
+	if cfg.Bottom != nil && bottomH > 0 {
+		p := t.panels[cfg.Bottom.Name]
+		if p == nil {
+			p = t.createPanel(*cfg.Bottom)
+			t.panels[cfg.Bottom.Name] = p
+		}
+		children = append(children, panelLayout{
+			name:      cfg.Bottom.Name,
+			panel:     p,
+			width:     width,
+			height:    bottomH,
+			hasBorder: !cfg.Bottom.NoBorder, // Children have their own borders
+			focused:   t.focusIdx == *currentFocusIdx,
+		})
+		*currentFocusIdx++
+	}
+
+	return children
+}
+
+// drawChildPanels renders horizontally split child panels within a parent panel
+func (t *TUI) drawChildPanels(buf *strings.Builder, pl panelLayout, height int) {
+	if len(pl.children) == 0 {
+		return
+	}
+
+	// Calculate starting positions - children start at row 1 (no parent top border)
+	currentRow := 1
+
+	// Render each child as an independent panel with its own border
+	for _, child := range pl.children {
+		// Child panels inherit parent's x position
+		childX := pl.x
+
+		if child.hasBorder {
+			borderColor := t.theme.Dim
+			if child.focused && child.panel != nil {
+				borderColor = child.panel.color
+			}
+
+			// Draw top border with title
+			t.drawTopBorder(buf, borderColor, childTitle(child), childX, currentRow, child.width)
+
+			// Draw left and right borders (between top and bottom)
+			t.drawVerticalBorders(buf, borderColor, childX, child.width, currentRow+1, currentRow+child.height-2)
+
+			// Draw bottom border
+			t.drawBottomBorder(buf, borderColor, childX, currentRow+child.height-1, child.width)
+
+			// Render content inside the child's border
+			contentH := child.height - 2
+			if contentH > 0 && child.panel != nil {
+				child.panel.render(buf, t.theme, child.width, contentH, currentRow+1, childX+2, child.focused)
+			}
+		} else {
+			// No border - just render content
+			if child.panel != nil && child.height > 0 {
+				child.panel.render(buf, t.theme, child.width, child.height, currentRow, childX+1, child.focused)
+			}
+		}
+
+		currentRow += child.height
+	}
+
+	// No parent border when there are children - the children have their own borders
+}
+
+// childTitle returns the title for a child panel
+func childTitle(child panelLayout) string {
+	if child.panel != nil && child.panel.title != "" {
+		return child.panel.title
+	}
+	return child.name
+}
+
+// drawTopBorder draws a top border with optional title at the specified position
+func (t *TUI) drawTopBorder(buf *strings.Builder, borderColor Color, title string, x, row, width int) {
+	buf.WriteString(cursorPos(row, x+1))
+
+	// Total width includes left border + content + right border
+	w := width + 2
+	if w < 3 {
+		buf.WriteString(fg(borderColor) + "│" + reset)
+		return
+	}
+
+	var line strings.Builder
+	line.WriteString(fg(borderColor) + "┌" + reset)
+
+	if title != "" && w > 6 {
+		titlePart := " " + title + " "
+		afterW := (w - 2 - utf8.RuneCountInString(titlePart)) / 2
+		beforeW := w - 2 - utf8.RuneCountInString(titlePart) - afterW
+		beforeW = max(0, beforeW)
+		afterW = max(0, afterW)
+		line.WriteString(fg(borderColor) + strings.Repeat("─", beforeW) + reset)
+		line.WriteString(fg(borderColor) + bold() + titlePart + reset)
+		line.WriteString(fg(borderColor) + strings.Repeat("─", afterW) + reset)
+	} else {
+		line.WriteString(fg(borderColor) + strings.Repeat("─", w-2) + reset)
+	}
+
+	line.WriteString(fg(borderColor) + "┐" + reset)
+	buf.WriteString(line.String())
+}
+
+// drawVerticalBorders draws left and right borders for a panel
+func (t *TUI) drawVerticalBorders(buf *strings.Builder, borderColor Color, x, width, startRow, endRow int) {
+	leftCol := x + 1
+	rightCol := x + width + 2
+	for row := startRow; row <= endRow; row++ {
+		buf.WriteString(cursorPos(row, leftCol))
+		buf.WriteString(fg(borderColor) + "│" + reset)
+		buf.WriteString(cursorPos(row, rightCol))
+		buf.WriteString(fg(borderColor) + "│" + reset)
+	}
+}
+
+// drawBottomBorder draws a bottom border at the specified position
+func (t *TUI) drawBottomBorder(buf *strings.Builder, borderColor Color, x, row, width int) {
+	buf.WriteString(cursorPos(row, x+1))
+	buf.WriteString(fg(borderColor) + "└" + reset)
+	if width > 0 {
+		buf.WriteString(fg(borderColor) + strings.Repeat("─", width) + reset)
+	}
+	buf.WriteString(fg(borderColor) + "┘" + reset)
+}
+
+// drawPanelTopBorder draws the top border line with title for a panel
+func (t *TUI) drawPanelTopBorder(buf *strings.Builder, pl panelLayout) {
+	borderColor := t.theme.Dim
+	if pl.focused && pl.panel != nil {
+		borderColor = pl.panel.color
+	}
+	title := pl.name
+	if pl.panel != nil && pl.panel.title != "" {
+		title = pl.panel.title
+	}
+	t.drawTopBorder(buf, borderColor, title, pl.x, 1, pl.width)
+}
+
+// drawSinglePanel renders a single panel without children
+func (t *TUI) drawSinglePanel(buf *strings.Builder, pl panelLayout, height int) {
+	contentW := pl.width
+	startCol := pl.x + 1 // 1-based column
+	contentStartRow := 1
+	contentHeight := height
+
+	if pl.hasBorder {
+		borderColor := t.theme.Dim
+		if pl.focused && pl.panel != nil {
+			borderColor = pl.panel.color
+		}
+
+		// Draw left and right borders (skip row 1 - it has the top border corner)
+		t.drawVerticalBorders(buf, borderColor, pl.x, pl.width, 2, height)
+
+		// Draw bottom border
+		t.drawBottomBorder(buf, borderColor, pl.x, height, pl.width)
+
+		startCol = pl.x + 2                 // Content starts after left border
+		contentW = pl.width                 // Content width is the panel width
+		contentStartRow = 2                 // Content starts after top border
+		contentHeight = max(1, height-2)    // Reduce height for top and bottom borders
+	}
+
+	// Render panel content
+	if pl.panel != nil && contentHeight > 0 {
+		pl.panel.render(buf, t.theme, contentW, contentHeight, contentStartRow, startCol, pl.focused)
+	}
+}
+
+// calculatePanelWidth converts config width to actual columns
+func (t *TUI) calculatePanelWidth(configWidth, available int) int {
+	if configWidth < 0 {
+		// Percentage: -30 means 30%
+		pct := -configWidth
+		return (available * pct) / 100
+	}
+	return configWidth
 }
 
 func (t *TUI) handleInput(b []byte) func() {
@@ -199,19 +575,19 @@ func (t *TUI) handleInput(b []byte) func() {
 				t.menu.moveDown(6)
 			case '5':
 				if len(b) >= 4 && b[3] == '~' {
-					t.output.scrollUp(t.height / 2)
+					t.focusedPanel().scrollUp(t.height / 2)
 				}
 			case '6':
 				if len(b) >= 4 && b[3] == '~' {
-					t.output.scrollDown(t.height / 2)
+					t.focusedPanel().scrollDown(t.height / 2)
 				}
 			case 'M':
 				if len(b) >= 6 {
 					switch b[3] & 0x7f {
 					case 64:
-						t.output.scrollUp(3)
+						t.focusedPanel().scrollUp(3)
 					case 65:
-						t.output.scrollDown(3)
+						t.focusedPanel().scrollDown(3)
 					}
 				}
 			}
@@ -311,21 +687,21 @@ func (t *TUI) handleInput(b []byte) func() {
 			return nil
 		case '5': // Page Up
 			if len(b) >= 4 && b[3] == '~' {
-				t.output.scrollUp(t.height / 2)
+				t.focusedPanel().scrollUp(t.height / 2)
 			}
 			return nil
 		case '6': // Page Down
 			if len(b) >= 4 && b[3] == '~' {
-				t.output.scrollDown(t.height / 2)
+				t.focusedPanel().scrollDown(t.height / 2)
 			}
 			return nil
 		case 'M': // X10 mouse event: ESC [ M b x y
 			if len(b) >= 6 {
 				switch b[3] & 0x7f {
 				case 64: // wheel up
-					t.output.scrollUp(3)
+					t.focusedPanel().scrollUp(3)
 				case 65: // wheel down
-					t.output.scrollDown(3)
+					t.focusedPanel().scrollDown(3)
 				}
 			}
 			return nil
@@ -338,13 +714,13 @@ func (t *TUI) handleInput(b []byte) func() {
 				parts := strings.SplitN(s[:len(s)-1], ";", 3)
 				if len(parts) == 3 {
 					btn := parts[0]
-					col := atoi(parts[1]) - 1      // 0-based
+					col := atoi(parts[1]) - 1       // 0-based
 					screenRow := atoi(parts[2]) - 1 // 0-based screen row
 					switch btn {
 					case "64": // wheel up
-						t.output.scrollUp(3)
+						t.focusedPanel().scrollUp(3)
 					case "65": // wheel down
-						t.output.scrollDown(3)
+						t.focusedPanel().scrollDown(3)
 					case "0": // left button press/release
 						lineIdx := t.output.lastStart + screenRow
 						if screenRow < t.outputHeight() && lineIdx < len(t.output.lastLines) {
@@ -392,8 +768,9 @@ func (t *TUI) handleInput(b []byte) func() {
 		return nil
 	}
 
-	// Tab — complete from palette.
+	// Tab — complete from palette or cycle panel focus.
 	if len(b) == 1 && b[0] == '\t' {
+		// If palette is active, handle completion
 		if t.palette.active {
 			if t.palette.argMode {
 				if arg := t.palette.selectedArg(); arg != "" {
@@ -413,6 +790,9 @@ func (t *TUI) handleInput(b []byte) func() {
 				}
 				t.palette.filter(cmd.Name + " ")
 			}
+		} else if t.hasMultiplePanels() {
+			// Cycle panel focus
+			t.cycleFocusLocked()
 		}
 		return nil
 	}

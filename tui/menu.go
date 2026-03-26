@@ -114,10 +114,7 @@ func (ms *menuState) render(buf *strings.Builder, t *Theme, w, height, startRow 
 	buf.WriteString(cursorPos(row, 1))
 	buf.WriteString(clearLine())
 	titleStr := " " + title + " "
-	pad := innerW - utf8.RuneCountInString(titleStr)
-	if pad < 0 {
-		pad = 0
-	}
+	pad := max(0, innerW-utf8.RuneCountInString(titleStr))
 	buf.WriteString(fg(t.Dim) + "│" + reset)
 	buf.WriteString(fg(t.Primary) + bold() + titleStr + reset)
 	buf.WriteString(strings.Repeat(" ", pad))
@@ -129,10 +126,7 @@ func (ms *menuState) render(buf *strings.Builder, t *Theme, w, height, startRow 
 		buf.WriteString(cursorPos(row, 1))
 		buf.WriteString(clearLine())
 		labelStr := "  " + lv.promptItem.Prompt
-		labelPad := innerW - utf8.RuneCountInString(labelStr)
-		if labelPad < 0 {
-			labelPad = 0
-		}
+		labelPad := max(0, innerW-utf8.RuneCountInString(labelStr))
 		buf.WriteString(fg(t.Dim) + "│" + reset)
 		buf.WriteString(fg(t.Secondary) + labelStr + strings.Repeat(" ", labelPad) + reset)
 		buf.WriteString(fg(t.Dim) + "│" + reset)
@@ -143,10 +137,7 @@ func (ms *menuState) render(buf *strings.Builder, t *Theme, w, height, startRow 
 		buf.WriteString(clearLine())
 		inputVal := string(lv.promptBuf)
 		inputStr := "  " + fg(t.Primary) + "> " + reset + fg(t.Text) + inputVal + reverse() + " " + reset
-		inputPad := innerW - 4 - utf8.RuneCountInString(inputVal)
-		if inputPad < 0 {
-			inputPad = 0
-		}
+		inputPad := max(0, innerW-4-utf8.RuneCountInString(inputVal))
 		buf.WriteString(fg(t.Dim) + "│" + reset)
 		buf.WriteString(inputStr + strings.Repeat(" ", inputPad))
 		buf.WriteString(fg(t.Dim) + "│" + reset)
@@ -164,10 +155,7 @@ func (ms *menuState) render(buf *strings.Builder, t *Theme, w, height, startRow 
 		buf.WriteString(cursorPos(row, 1))
 		buf.WriteString(clearLine())
 		hint := "  Enter confirm · Esc cancel"
-		hintPad := innerW - utf8.RuneCountInString(hint)
-		if hintPad < 0 {
-			hintPad = 0
-		}
+		hintPad := max(0, innerW-utf8.RuneCountInString(hint))
 		buf.WriteString(fg(t.Dim) + "│" + reset)
 		buf.WriteString(fg(t.Dim) + hint + strings.Repeat(" ", hintPad) + reset)
 		buf.WriteString(fg(t.Dim) + "│" + reset)
@@ -175,10 +163,7 @@ func (ms *menuState) render(buf *strings.Builder, t *Theme, w, height, startRow 
 	} else {
 		// Items.
 		items := lv.menu.Items
-		end := lv.viewOff + maxItems
-		if end > len(items) {
-			end = len(items)
-		}
+		end := min(len(items), lv.viewOff+maxItems)
 		for i := lv.viewOff; i < end; i++ {
 			item := items[i]
 			buf.WriteString(cursorPos(row, 1))
@@ -187,17 +172,13 @@ func (ms *menuState) render(buf *strings.Builder, t *Theme, w, height, startRow 
 			var line strings.Builder
 			if i == lv.selected {
 				line.WriteString(fg(t.Primary) + bold() + " › " + item.Label)
-				if item.Children != nil || item.Prompt != "" {
-					line.WriteString(" ›")
-				}
-				line.WriteString(reset)
 			} else {
 				line.WriteString(fg(t.Secondary) + "   " + item.Label)
-				if item.Children != nil || item.Prompt != "" {
-					line.WriteString(" ›")
-				}
-				line.WriteString(reset)
 			}
+			if item.Children != nil || item.Prompt != "" {
+				line.WriteString(" ›")
+			}
+			line.WriteString(reset)
 			content := line.String()
 			vl := visibleLen(content)
 			buf.WriteString(content)
@@ -225,10 +206,7 @@ func (ms *menuState) render(buf *strings.Builder, t *Theme, w, height, startRow 
 		} else {
 			hint += " · Esc close"
 		}
-		hintPad := innerW - utf8.RuneCountInString(hint)
-		if hintPad < 0 {
-			hintPad = 0
-		}
+		hintPad := max(0, innerW-utf8.RuneCountInString(hint))
 		buf.WriteString(fg(t.Dim) + "│" + reset)
 		buf.WriteString(fg(t.Dim) + hint + strings.Repeat(" ", hintPad) + reset)
 		buf.WriteString(fg(t.Dim) + "│" + reset)

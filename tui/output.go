@@ -99,16 +99,17 @@ func (o *outputRegion) SetLabels(user, assistant, system string) {
 }
 
 func (o *outputRegion) scrollUp(n int)   { o.scrollOff += n }
-func (o *outputRegion) scrollDown(n int) {
-	o.scrollOff -= n
-	if o.scrollOff < 0 {
-		o.scrollOff = 0
-	}
-}
+func (o *outputRegion) scrollDown(n int) { o.scrollOff = max(0, o.scrollOff-n) }
 
 // render draws the output region into buf, using height terminal rows of width w.
 // startRow is the 1-based terminal row where the region begins.
 func (o *outputRegion) render(buf *strings.Builder, t *Theme, w, height, startRow int) {
+	o.renderAt(buf, t, w, height, startRow, 1)
+}
+
+// renderAt draws the output region at a specific column position.
+// startRow and startCol are 1-based terminal positions.
+func (o *outputRegion) renderAt(buf *strings.Builder, t *Theme, w, height, startRow, startCol int) {
 	lineW := w
 
 	all := o.messages
@@ -124,23 +125,12 @@ func (o *outputRegion) render(buf *strings.Builder, t *Theme, w, height, startRo
 	o.lastLines = lines
 
 	total := len(lines)
-	maxOff := total - height
-	if maxOff < 0 {
-		maxOff = 0
-	}
-	if o.scrollOff > maxOff {
-		o.scrollOff = maxOff
-	}
+	maxOff := max(0, total-height)
+	o.scrollOff = min(o.scrollOff, maxOff)
 
-	start := total - height - o.scrollOff
-	if start < 0 {
-		start = 0
-	}
+	start := max(0, total-height-o.scrollOff)
 	o.lastStart = start
-	end := start + height
-	if end > total {
-		end = total
-	}
+	end := min(total, start+height)
 
 	// Normalise selection so a0 <= a1.
 	var selA, selB selAnchor
@@ -155,19 +145,23 @@ func (o *outputRegion) render(buf *strings.Builder, t *Theme, w, height, startRo
 
 	for i := start; i < end; i++ {
 		row := i - start
-		buf.WriteString(cursorPos(startRow+row, 1))
+		buf.WriteString(cursorPos(startRow+row, startCol))
 		buf.WriteString(linkReset)
-		buf.WriteString(clearLine())
 		line := truncate(lines[i], lineW)
 		if hasSelection && i >= selA.row && i <= selB.row {
 			line = applyHighlight(line, selA, selB, i, lineW)
 		}
 		buf.WriteString(line)
+		// Pad with spaces to fill the width (don't use clearLine - it clears to end of terminal)
+		if pad := lineW - visibleLen(line); pad > 0 {
+			buf.WriteString(strings.Repeat(" ", pad))
+		}
 	}
 	for i := end - start; i < height; i++ {
-		buf.WriteString(cursorPos(startRow+i, 1))
+		buf.WriteString(cursorPos(startRow+i, startCol))
 		buf.WriteString(linkReset)
-		buf.WriteString(clearLine())
+		// Pad with spaces instead of clearing the line
+		buf.WriteString(strings.Repeat(" ", lineW))
 	}
 }
 
@@ -302,10 +296,7 @@ func roleHeader(m *message, t *Theme, w int, userLabel, assistantLabel, systemLa
 		return ""
 	}
 	label = " " + label + " "
-	fill := w - utf8.RuneCountInString(label) - 4
-	if fill < 0 {
-		fill = 0
-	}
+	fill := max(0, w-utf8.RuneCountInString(label)-4)
 	var b strings.Builder
 	b.WriteString(fg(t.Dim))
 	b.WriteString("━━")
@@ -405,8 +396,15 @@ func wordWrap(s string, w int) []string {
 			currentW += tokW
 		} else {
 			lines = append(lines, strings.TrimRight(current, " "))
-			current = tok
-			currentW = tokW
+			// Token doesn't fit on current line - check if it needs hard-wrapping
+			if tokW > w {
+				lines = append(lines, splitHardWrap(tok, w)...)
+				current = ""
+				currentW = 0
+			} else {
+				current = tok
+				currentW = tokW
+			}
 		}
 	}
 	if current != "" {

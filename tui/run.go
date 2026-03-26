@@ -74,13 +74,15 @@ func (t *TUI) restore() {
 	fmt.Print(resetScrollRegion(), showCursor(), reset)
 }
 
-func (t *TUI) resize() {
+func (t *TUI) resize() bool {
 	w, h, err := term.GetSize(t.fd)
 	if err != nil || w < 10 || h < 5 {
 		w, h = 80, 24
 	}
+	changed := t.width != w || t.height != h
 	t.width = w
 	t.height = h
+	return changed
 }
 
 // outputHeight returns the number of rows the output region occupies.

@@ -113,6 +113,9 @@ type TUI struct {
 	palette       *palette
 	width         int
 	height        int
+	prevWidth     int // Previous width for resize detection
+	prevHeight    int // Previous height for resize detection
+	prevOutputH   int // Previous output height for layout change detection
 	fd            int
 	oldState      *term.State
 	quit          bool
@@ -124,6 +127,13 @@ type TUI struct {
 	progressLabel string
 	ctx           context.Context
 	menu          *menuState
+
+	// Panel support
+	panels        map[string]*Panel
+	mainPanel     *Panel // Cached main panel for legacy methods
+	layout        LayoutConfig
+	focusIdx      int // Index of focused panel (0=left, 1=main, 2=right)
+	panelColorIdx int // For auto-assigning panel colors
 }
 
 // New creates a new TUI with the given configuration.
@@ -140,6 +150,7 @@ func New(cfg Config) *TUI {
 		cfg:      cfg,
 		theme:    cfg.Theme,
 		progress: -1,
+		panels:   make(map[string]*Panel),
 		output: &outputRegion{
 			userLabel:      cfg.UserLabel,
 			assistantLabel: cfg.AssistantLabel,
@@ -148,6 +159,16 @@ func New(cfg Config) *TUI {
 		},
 		input: newInputArea(),
 	}
+
+	// Create main panel wrapping the existing output region
+	t.mainPanel = &Panel{
+		name:   "main",
+		tui:    t,
+		region: t.output,
+		color:  cfg.Theme.Primary,
+	}
+	t.panels["main"] = t.mainPanel
+
 	t.palette = newPalette(cfg.Commands)
 	return t
 }
@@ -176,6 +197,14 @@ func (t *TUI) Context() context.Context {
 	return t.ctx
 }
 
+// TerminalSize returns the full terminal dimensions (width, height).
+// Returns 0, 0 if the terminal size has not been determined yet.
+func (t *TUI) TerminalSize() (width, height int) {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	return t.width, t.height
+}
+
 // Exit cleanly shuts down the TUI event loop.
 // Useful as a /exit command handler: func(_ string) { t.Exit() }
 func (t *TUI) Exit() {
@@ -186,67 +215,42 @@ func (t *TUI) Exit() {
 
 // AddMessageAs appends a complete message with a custom label.
 func (t *TUI) AddMessageAs(role MessageRole, label, content string) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	t.output.AddMessageAs(role, label, content)
-	t.draw()
+	t.mainPanel.AddMessageAs(role, label, content)
 }
 
 // AddMessage appends a complete message to the output region.
 func (t *TUI) AddMessage(role MessageRole, content string) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	t.output.AddMessage(role, content)
-	t.draw()
+	t.mainPanel.AddMessage(role, content)
 }
 
 // IsStreaming returns true if a streaming message is in progress.
 func (t *TUI) IsStreaming() bool {
-	t.mu.RLock()
-	defer t.mu.RUnlock()
-	return t.output.streaming != nil
+	return t.mainPanel.IsStreaming()
 }
 
 // StartStreaming begins a new streaming assistant message.
 func (t *TUI) StartStreaming() {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	t.output.StartStreaming()
-	t.draw()
+	t.mainPanel.StartStreaming()
 }
 
 // StartStreamingAs begins a new streaming assistant message with a custom label.
 func (t *TUI) StartStreamingAs(label string) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	t.output.StartStreamingAs(label)
-	t.draw()
+	t.mainPanel.StartStreamingAs(label)
 }
 
 // StreamChunk appends a chunk to the current streaming message.
 func (t *TUI) StreamChunk(chunk string) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	t.output.StreamChunk(chunk)
-	t.draw()
+	t.mainPanel.StreamChunk(chunk)
 }
 
 // StopStreaming finalises any in-progress streaming message.
 func (t *TUI) StopStreaming() {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	if t.output.streaming != nil {
-		t.output.StreamComplete()
-		t.draw()
-	}
+	t.mainPanel.StopStreaming()
 }
 
 // StreamComplete finalises the streaming message.
 func (t *TUI) StreamComplete() {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	t.output.StreamComplete()
-	t.draw()
+	t.mainPanel.StreamComplete()
 }
 
 func (t *TUI) inputEnabled() bool {
@@ -255,10 +259,11 @@ func (t *TUI) inputEnabled() bool {
 
 // ClearOutput removes all messages from the output region.
 func (t *TUI) ClearOutput() {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	t.output.Clear()
-	t.draw()
+	t.mainPanel.Clear()
+}
+
+func (t *TUI) WriteString(s string) {
+	t.mainPanel.WriteString(s)
 }
 
 // refresh redraws the screen.
@@ -355,13 +360,7 @@ func (t *TUI) SetProgress(label string, value float64) {
 		t.spinnerStop = nil
 		t.spinnerText = ""
 	}
-	if value < 0 {
-		value = 0
-	}
-	if value > 1 {
-		value = 1
-	}
-	t.progress = value
+	t.progress = min(1, max(0, value))
 	t.progressLabel = label
 	t.draw()
 }
@@ -426,4 +425,208 @@ func (t *TUI) flashCopied() {
 		}
 		t.mu.Unlock()
 	}()
+}
+
+// redraw acquires the lock and redraws the screen.
+func (t *TUI) redraw() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.draw()
+}
+
+// Panel returns the panel with the given name, creating it if it doesn't exist.
+// The special name "main" returns the main panel.
+func (t *TUI) Panel(name string) *Panel {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	if p, ok := t.panels[name]; ok {
+		return p
+	}
+
+	// Create new panel with auto-assigned color
+	p := t.createPanel(PanelConfig{Name: name})
+	t.panels[name] = p
+	return p
+}
+
+// createPanel creates a new panel with auto-assigned color.
+// Must be called with t.mu held.
+func (t *TUI) createPanel(cfg PanelConfig) *Panel {
+	colors := []Color{t.theme.Primary, t.theme.Secondary}
+	color := colors[t.panelColorIdx%len(colors)]
+	t.panelColorIdx++
+	return newPanel(cfg, t, color)
+}
+
+// SetLayout configures the panel layout.
+func (t *TUI) SetLayout(cfg LayoutConfig) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	t.layout = cfg
+
+	// Create panels defined in layout (if not already created)
+	// Skip split parents - they're containers, not renderable panels
+	if cfg.Left != nil && cfg.Left.Top == nil && cfg.Left.Bottom == nil {
+		if _, ok := t.panels[cfg.Left.Name]; !ok {
+			t.panels[cfg.Left.Name] = t.createPanel(*cfg.Left)
+		}
+	}
+
+	if cfg.Right != nil && cfg.Right.Top == nil && cfg.Right.Bottom == nil {
+		if _, ok := t.panels[cfg.Right.Name]; !ok {
+			t.panels[cfg.Right.Name] = t.createPanel(*cfg.Right)
+		}
+	}
+
+	// Set initial focus to main panel (after all left panels)
+	t.focusIdx = t.countPanelChildren(t.layout.Left)
+
+	t.draw()
+}
+
+// FocusPanel sets the focused panel by index.
+func (t *TUI) FocusPanel(idx int) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	visible := t.countFocusablePanels()
+
+	if idx >= 0 && idx < visible {
+		t.focusIdx = idx
+		t.draw()
+	}
+}
+
+// FocusedPanel returns the index of the focused panel (0=left, 1=main, 2=right).
+func (t *TUI) FocusedPanel() int {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	return t.focusIdx
+}
+
+// CycleFocus moves focus to the next panel.
+func (t *TUI) CycleFocus() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.cycleFocusLocked()
+}
+
+// countFocusablePanels counts all focusable panels including children.
+func (t *TUI) countFocusablePanels() int {
+	count := 1 // main always focusable
+
+	if t.layout.Left != nil {
+		count += t.countPanelChildren(t.layout.Left)
+	}
+	if t.layout.Right != nil {
+		count += t.countPanelChildren(t.layout.Right)
+	}
+
+	return count
+}
+
+// countPanelChildren counts focusable panels (excluding SkipFocus ones).
+func (t *TUI) countPanelChildren(cfg *PanelConfig) int {
+	if cfg.Top != nil || cfg.Bottom != nil {
+		count := 0
+		if cfg.Top != nil && !cfg.Top.SkipFocus {
+			count++
+		}
+		if cfg.Bottom != nil && !cfg.Bottom.SkipFocus {
+			count++
+		}
+		return count
+	}
+	if cfg.SkipFocus {
+		return 0
+	}
+	return 1
+}
+
+// cycleFocusLocked moves focus to the next panel. Must be called with t.mu held.
+func (t *TUI) cycleFocusLocked() {
+	visible := t.countFocusablePanels()
+	t.focusIdx = (t.focusIdx + 1) % visible
+	t.draw()
+}
+
+// hasMultiplePanels returns true if there's more than one visible panel.
+func (t *TUI) hasMultiplePanels() bool {
+	return t.layout.Left != nil || t.layout.Right != nil
+}
+
+// HasMultiplePanels returns true if there's more than one visible panel.
+func (t *TUI) HasMultiplePanels() bool {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	return t.hasMultiplePanels()
+}
+
+// focusedPanel returns the currently focused panel's output region.
+// Must be called with t.mu held.
+func (t *TUI) focusedPanel() *outputRegion {
+	idx := 0
+
+	// Helper to advance index and check focus match
+	checkFocus := func(cfg *PanelConfig) *outputRegion {
+		if cfg.SkipFocus {
+			return nil
+		}
+		if t.focusIdx == idx {
+			if p := t.panels[cfg.Name]; p != nil {
+				return p.region
+			}
+		}
+		idx++
+		return nil
+	}
+
+	// Check left panel and its children
+	if t.layout.Left != nil {
+		if t.layout.Left.Top != nil {
+			if r := checkFocus(t.layout.Left.Top); r != nil {
+				return r
+			}
+		}
+		if t.layout.Left.Bottom != nil {
+			if r := checkFocus(t.layout.Left.Bottom); r != nil {
+				return r
+			}
+		}
+		if t.layout.Left.Top == nil && t.layout.Left.Bottom == nil {
+			if r := checkFocus(t.layout.Left); r != nil {
+				return r
+			}
+		}
+	}
+
+	// Main panel (always focusable)
+	if t.focusIdx == idx {
+		return t.output
+	}
+	idx++
+
+	// Check right panel and its children
+	if t.layout.Right != nil {
+		if t.layout.Right.Top != nil {
+			if r := checkFocus(t.layout.Right.Top); r != nil {
+				return r
+			}
+		}
+		if t.layout.Right.Bottom != nil {
+			if r := checkFocus(t.layout.Right.Bottom); r != nil {
+				return r
+			}
+		}
+		if t.layout.Right.Top == nil && t.layout.Right.Bottom == nil {
+			if r := checkFocus(t.layout.Right); r != nil {
+				return r
+			}
+		}
+	}
+
+	// Default to main output
+	return t.output
 }
