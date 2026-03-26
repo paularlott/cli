@@ -87,7 +87,7 @@ func main() {
 	// Add slash commands
 	t.AddCommand(&tui.Command{
 		Name:        "clear",
-		Description: "Clear main panel",
+		Description: "Clear main output",
 		Handler:     func(_ string) { mainPanel.Clear() },
 	})
 	t.AddCommand(&tui.Command{

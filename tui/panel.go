@@ -13,31 +13,33 @@ const maxScrollOff = 1 << 30
 
 // PanelConfig configures a panel in the layout.
 type PanelConfig struct {
-	Name       string        // Panel identifier
-	Width      int           // Positive = columns, negative = percentage (e.g., -30 = 30%)
-	Height     int           // Positive = rows, negative = percentage (e.g., -50 = 50%). Used when panel is split vertically
-	MinWidth   int           // Minimum width to render; 0 = always show
-	Scrollable bool          // True = content scrolls, false = fixed viewport
-	Title      string        // Optional title for border; empty = no title
-	Color      *Color        // Optional border/accent color; nil = auto-assign
-	NoBorder   bool          // True = hide border for this panel
-	SkipFocus  bool          // True = exclude from Tab focus cycle
-	Top        *PanelConfig  // Optional top child panel (horizontal split)
-	Bottom     *PanelConfig  // Optional bottom child panel (horizontal split)
+	Name       string       // Panel identifier
+	Width      int          // Positive = columns, negative = percentage (e.g., -30 = 30%)
+	Height     int          // Positive = rows, negative = percentage (e.g., -50 = 50%). Used when panel is split vertically
+	MinWidth   int          // Minimum width to render; 0 = always show
+	Scrollable bool         // True = content scrolls, false = fixed viewport
+	Title      string       // Optional title for border; empty = no title
+	Color      *Color       // Optional border/accent color; nil = auto-assign
+	NoBorder   bool         // True = hide border for this panel
+	SkipFocus  bool         // True = exclude from Tab focus cycle
+	Top        *PanelConfig // Optional top child panel (horizontal split)
+	Bottom     *PanelConfig // Optional bottom child panel (horizontal split)
 }
 
 // LayoutConfig configures the panel layout.
 type LayoutConfig struct {
-	Left   *PanelConfig // nil = no left panel
-	Right  *PanelConfig // nil = no right panel
+	Left  *PanelConfig // nil = no left panel
+	Right *PanelConfig // nil = no right panel
 }
 
 // Panel represents a content area within the TUI.
 // It implements io.Writer for easy integration with other systems.
+// Panels render raw text content via WriteString, SetContent, etc.
+// For chat-like message history, use the TUI's main output methods instead.
 type Panel struct {
 	name       string
 	tui        *TUI
-	region     *outputRegion
+	region     *outputRegion // for scroll state only
 	title      string
 	color      Color
 	noBorder   bool
@@ -49,9 +51,8 @@ type Panel struct {
 	width  int
 	height int
 
-	// Low-level content mode (alternative to message mode)
+	// Content
 	rawLines []string
-	rawMode  bool
 }
 
 // newPanel creates a new panel with the given configuration.
@@ -83,17 +84,16 @@ func (p *Panel) Name() string {
 
 // --- io.Writer interface ---
 
-// Write implements io.Writer. It appends bytes to the panel content.
+// Write implements io.Writer. It appends bytes to the panel's raw content.
 func (p *Panel) Write(b []byte) (int, error) {
 	p.WriteString(string(b))
 	return len(b), nil
 }
 
-// WriteString appends a string to the panel content.
+// WriteString appends a string to the panel's raw content.
+// The panel must be in ModeRaw to render this content.
 func (p *Panel) WriteString(s string) {
 	p.mu.Lock()
-	// Use raw mode for direct writes
-	p.rawMode = true
 	for _, line := range strings.Split(s, "\n") {
 		p.rawLines = append(p.rawLines, line)
 	}
@@ -108,12 +108,11 @@ func (p *Panel) WriteString(s string) {
 	}
 }
 
-// --- Message API (same as TUI output) ---
+// --- Message API ---
 
 // AddMessage appends a complete message with role.
 func (p *Panel) AddMessage(role MessageRole, content string) {
 	p.mu.Lock()
-	p.rawMode = false
 	p.region.AddMessage(role, content)
 	p.mu.Unlock()
 	if p.tui != nil {
@@ -124,7 +123,6 @@ func (p *Panel) AddMessage(role MessageRole, content string) {
 // AddMessageAs appends a complete message with a custom label.
 func (p *Panel) AddMessageAs(role MessageRole, label, content string) {
 	p.mu.Lock()
-	p.rawMode = false
 	p.region.AddMessageAs(role, label, content)
 	p.mu.Unlock()
 	if p.tui != nil {
@@ -135,7 +133,6 @@ func (p *Panel) AddMessageAs(role MessageRole, label, content string) {
 // StartStreaming begins a new assistant message built incrementally.
 func (p *Panel) StartStreaming() {
 	p.mu.Lock()
-	p.rawMode = false
 	p.region.StartStreaming()
 	p.mu.Unlock()
 	if p.tui != nil {
@@ -146,7 +143,6 @@ func (p *Panel) StartStreaming() {
 // StartStreamingAs begins a new streaming message with a custom label.
 func (p *Panel) StartStreamingAs(label string) {
 	p.mu.Lock()
-	p.rawMode = false
 	p.region.StartStreamingAs(label)
 	p.mu.Unlock()
 	if p.tui != nil {
@@ -196,9 +192,8 @@ func (p *Panel) StopStreaming() {
 // Clear removes all content from the panel.
 func (p *Panel) Clear() {
 	p.mu.Lock()
-	p.region.Clear()
 	p.rawLines = nil
-	p.rawMode = false
+	p.region.Clear()
 	p.mu.Unlock()
 	if p.tui != nil {
 		p.tui.redraw()
@@ -270,7 +265,7 @@ func (p *Panel) Size() (width, height int) {
 func (p *Panel) ContentLines() int {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if p.rawMode {
+	if len(p.rawLines) > 0 {
 		return len(p.rawLines)
 	}
 	return len(p.region.lastLines)
@@ -280,9 +275,9 @@ func (p *Panel) ContentLines() int {
 
 // WriteAt writes text at a specific position (0-indexed, relative to panel).
 // If the position is outside current content, content is extended with blank lines.
+// The panel must be in ModeRaw to render this content.
 func (p *Panel) WriteAt(row, col int, s string) {
 	p.mu.Lock()
-	p.rawMode = true
 
 	// Extend rawLines if needed
 	for len(p.rawLines) <= row {
@@ -313,10 +308,10 @@ func (p *Panel) WriteAt(row, col int, s string) {
 	}
 }
 
-// ClearLine clears a specific line.
+// ClearLine clears a specific line in raw content.
+// The panel must be in ModeRaw for this to have visible effect.
 func (p *Panel) ClearLine(row int) {
 	p.mu.Lock()
-	p.rawMode = true
 
 	if row >= 0 && row < len(p.rawLines) {
 		p.rawLines[row] = ""
@@ -328,10 +323,10 @@ func (p *Panel) ClearLine(row int) {
 	}
 }
 
-// ClearRegion clears a rectangular region.
+// ClearRegion clears a rectangular region in raw content.
+// The panel must be in ModeRaw for this to have visible effect.
 func (p *Panel) ClearRegion(startRow, startCol, endRow, endCol int) {
 	p.mu.Lock()
-	p.rawMode = true
 
 	for row := startRow; row <= endRow && row < len(p.rawLines); row++ {
 		line := p.rawLines[row]
@@ -359,10 +354,10 @@ func (p *Panel) ClearRegion(startRow, startCol, endRow, endCol int) {
 	}
 }
 
-// SetContent replaces all content with the given string.
+// SetContent replaces all raw content with the given string.
+// The panel must be in ModeRaw to render this content.
 func (p *Panel) SetContent(s string) {
 	p.mu.Lock()
-	p.rawMode = true
 	p.rawLines = strings.Split(s, "\n")
 	p.mu.Unlock()
 
@@ -497,6 +492,7 @@ func (p *Panel) StyledWith(name string, text string) string {
 
 // render draws the panel content into buf.
 // Called with TUI lock held; acquires Panel.mu for data access.
+// Renders raw lines if present, otherwise renders messages.
 func (p *Panel) render(buf *strings.Builder, theme *Theme, width, height, startRow, startCol int, focused bool) {
 	if width <= 0 || height <= 0 {
 		return
@@ -509,7 +505,8 @@ func (p *Panel) render(buf *strings.Builder, theme *Theme, width, height, startR
 	p.width = width
 	p.height = height
 
-	if p.rawMode {
+	// Render raw lines if present, otherwise messages
+	if len(p.rawLines) > 0 {
 		p.renderRawLocked(buf, theme, width, height, startRow, startCol)
 	} else {
 		p.region.renderAt(buf, theme, width, height, startRow, startCol)

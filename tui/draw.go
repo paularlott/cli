@@ -43,12 +43,8 @@ func (t *TUI) draw() {
 	if multiPanel {
 		t.drawPanels(&buf, outputH)
 	} else {
-		// Single panel mode - render through main panel to support raw mode
-		if t.mainPanel.rawMode {
-			t.mainPanel.render(&buf, t.theme, t.width, outputH, 1, 1, true)
-		} else {
-			t.output.render(&buf, t.theme, t.width, outputH, 1)
-		}
+		// Single panel mode - use main output region for message-style output
+		t.output.render(&buf, t.theme, t.width, outputH, 1)
 	}
 
 	row := outputH + 1
