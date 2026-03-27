@@ -718,7 +718,7 @@ func (t *TUI) handleInput(b []byte) func() {
 				parts := strings.SplitN(s[:len(s)-1], ";", 3)
 				if len(parts) == 3 {
 					btn := parts[0]
-					col := atoi(parts[1]) - 1       // 0-based
+					screenCol := atoi(parts[1]) - 1 // 0-based screen column
 					screenRow := atoi(parts[2]) - 1 // 0-based screen row
 					switch btn {
 						case "64": // wheel up
@@ -726,9 +726,14 @@ func (t *TUI) handleInput(b []byte) func() {
 					case "65": // wheel down
 						t.focusedPanel().scrollDown(3)
 					case "0": // left button press/release
-						lineIdx := t.output.lastStart + screenRow
-						if screenRow < t.outputHeight() && lineIdx < len(t.output.lastLines) {
-							pt := selAnchor{row: lineIdx, col: col}
+						// Convert screen coordinates to panel-relative
+						xOffset := t.mainPanelContentXOffset()
+						yOffset := t.mainPanelContentYOffset()
+						panelCol := screenCol - xOffset
+						panelRow := screenRow - yOffset
+						lineIdx := t.output.lastStart + panelRow
+						if panelRow >= 0 && panelRow < t.outputHeight() && lineIdx < len(t.output.lastLines) && panelCol >= 0 {
+							pt := selAnchor{row: lineIdx, col: panelCol}
 							if !release {
 								t.output.sel = &[2]selAnchor{pt, pt}
 							} else if t.output.sel != nil {
@@ -744,9 +749,14 @@ func (t *TUI) handleInput(b []byte) func() {
 							t.output.sel = nil
 						}
 					case "32": // left button drag (motion)
-						lineIdx := t.output.lastStart + screenRow
-						if t.output.sel != nil && screenRow < t.outputHeight() && lineIdx < len(t.output.lastLines) {
-							t.output.sel[1] = selAnchor{row: lineIdx, col: col}
+						// Convert screen coordinates to panel-relative
+						xOffset := t.mainPanelContentXOffset()
+						yOffset := t.mainPanelContentYOffset()
+						panelCol := screenCol - xOffset
+						panelRow := screenRow - yOffset
+						lineIdx := t.output.lastStart + panelRow
+						if t.output.sel != nil && panelRow >= 0 && panelRow < t.outputHeight() && lineIdx < len(t.output.lastLines) && panelCol >= 0 {
+							t.output.sel[1] = selAnchor{row: lineIdx, col: panelCol}
 						}
 					}
 				}

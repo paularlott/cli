@@ -102,6 +102,44 @@ func (t *TUI) outputHeight() int {
 	return h
 }
 
+// mainPanelContentXOffset returns the 0-based column where main panel content starts.
+// In single-panel mode, this is 0. In multi-panel mode, it accounts for left panels and borders.
+func (t *TUI) mainPanelContentXOffset() int {
+	if !t.hasMultiplePanels() {
+		return 0
+	}
+
+	// Calculate x offset by summing widths of panels before main
+	x := 0
+	if t.layout.Left != nil {
+		cfg := t.layout.Left
+		w := t.calculatePanelWidth(cfg.Width, t.width)
+		minW := cfg.MinWidth
+		if minW == 0 {
+			minW = 2
+		}
+		if w >= minW {
+			x += w
+			if !cfg.NoBorder {
+				x += 2 // left and right border columns
+			}
+		}
+	}
+
+	// Main panel always has border in multi-panel mode, so content starts 1 column after x
+	return x + 1
+}
+
+// mainPanelContentYOffset returns the 0-based row where main panel content starts.
+// In single-panel mode, this is 0. In multi-panel mode, it accounts for the top border.
+func (t *TUI) mainPanelContentYOffset() int {
+	if !t.hasMultiplePanels() {
+		return 0
+	}
+	// Main panel always has border in multi-panel mode, so content starts 1 row down
+	return 1
+}
+
 // inputBoxHeight returns the number of rows the input box occupies (including borders).
 func (t *TUI) inputBoxHeight() int {
 	h := len(t.input.lines) + 4
