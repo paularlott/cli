@@ -72,6 +72,9 @@ main.AddMessage(tui.RoleUser, "Hello!")
 - `WriteString` for raw text with ANSI passthrough
 - `SetContent` to replace content entirely (useful for fixed panels)
 - `WriteAt(row, col, text)` for positioned writes
+- `ClearLine(row)`, `ClearRegion(r1, c1, r2, c2)` for partial clearing
+- `ScrollToTop`, `ScrollToBottom`, `ScrollUp(n)`, `ScrollDown(n)`
+- `Size()` returns `(width, height)`, `ContentLines()` returns line count
 - `SetTitle("")` to remove title (unnamed panel)
 - `SetBorder(false)` to hide border
 - `SetColor(color)` for border accent
@@ -140,8 +143,9 @@ type Config struct {
     Theme          *Theme      // Active theme. Defaults to ThemeDefault.
     Themes         []*Theme    // Additional themes registered into the global registry.
     Commands       []*Command  // Slash commands shown in the palette.
-    OnSubmit       func(text string) // Called when the user submits input.
-    OnEscape       func()            // Called when Escape is pressed outside the palette.
+    OnSubmit       func(text string)  // Called when the user submits input.
+    OnEscape       func()             // Called when Escape is pressed outside the palette.
+    OnFocusChange  func(panel *Panel) // Called when panel focus changes via Tab cycling.
     UserLabel      string      // Label for user messages. Empty string hides the header.
     AssistantLabel string      // Label for assistant messages. Empty string hides the header.
     SystemLabel    string      // Label for system messages. Empty string hides the header.
@@ -186,6 +190,9 @@ t.AddMessage(tui.RoleSystem, "Connected.")
 
 // Append a message with a custom label (overrides the role label for this message).
 t.AddMessageAs(tui.RoleAssistant, "GPT-4o", "Here is my answer…")
+
+// Clear all messages.
+t.ClearOutput()
 ```
 
 Message content supports fenced code blocks:
@@ -281,12 +288,6 @@ Spinner and progress bar are mutually exclusive. Both are overridden by the scro
 t.SetStatus("myapp", "v1.2.3")   // set both at once
 t.SetStatusLeft("myapp")
 t.SetStatusRight("v1.2.3")
-```
-
-## Output
-
-```go
-t.ClearOutput() // remove all messages from the output region
 ```
 
 ## Styled Text
@@ -454,6 +455,7 @@ tui.RegisterTheme(myTheme)
 | `Ctrl+W`       | Delete word before cursor                                                                    |
 | `Page Up/Down` | Scroll focused panel half a page                                                             |
 | Mouse wheel    | Scroll panel under cursor 3 lines                                                            |
+| Mouse drag     | Select text; release to copy to clipboard                                                    |
 | `Tab`          | Complete palette command/arg, or cycle panel focus when palette closed                       |
 | `Esc`          | Close palette / fire `OnEscape`                                                              |
 | `Ctrl+C`       | Exit                                                                                         |
