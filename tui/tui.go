@@ -603,6 +603,9 @@ func (t *TUI) countFocusablePanels() int {
 
 // countPanelChildren counts focusable panels (excluding SkipFocus ones).
 func (t *TUI) countPanelChildren(cfg *PanelConfig) int {
+	if cfg == nil {
+		return 0
+	}
 	if cfg.Top != nil || cfg.Bottom != nil {
 		count := 0
 		if cfg.Top != nil && !cfg.Top.SkipFocus {

@@ -179,10 +179,11 @@ func (t *TUI) drawPanels(buf *strings.Builder, height int) {
 		}
 	}
 
-	// Main panel always visible
+	// Main panel always visible - always show border in multi-panel mode
 	mainFocusIdx := currentFocusIdx
+	mainHasBorder := true // Always show border in multi-panel mode
 	panels = append(panels, panelLayout{
-		name: "main", panel: t.mainPanel, width: 0, height: height, hasBorder: false,
+		name: "main", panel: t.mainPanel, width: 0, height: height, hasBorder: mainHasBorder,
 		focused: t.focusIdx == currentFocusIdx,
 	})
 	currentFocusIdx++
@@ -220,8 +221,15 @@ func (t *TUI) drawPanels(buf *strings.Builder, height int) {
 		}
 	}
 
-	// Assign remaining width to main panel
-	panels[mainFocusIdx].width = remainingWidth
+	// Assign remaining width to main panel (account for border if present)
+	mainWidth := remainingWidth
+	if panels[mainFocusIdx].hasBorder {
+		mainWidth -= 2 // left and right border columns
+	}
+	if mainWidth < 2 {
+		mainWidth = 2
+	}
+	panels[mainFocusIdx].width = mainWidth
 	if panels[mainFocusIdx].width < 2 {
 		panels[mainFocusIdx].width = 2
 	}
@@ -471,10 +479,10 @@ func (t *TUI) drawSinglePanel(buf *strings.Builder, pl panelLayout, height int) 
 		// Draw bottom border
 		t.drawBottomBorder(buf, borderColor, pl.x, height, pl.width)
 
-		startCol = pl.x + 2                 // Content starts after left border
-		contentW = pl.width                 // Content width is the panel width
-		contentStartRow = 2                 // Content starts after top border
-		contentHeight = max(1, height-2)    // Reduce height for top and bottom borders
+		startCol = pl.x + 2              // Content starts after left border
+		contentW = pl.width              // Content width is the panel width
+		contentStartRow = 2              // Content starts after top border
+		contentHeight = max(1, height-2) // Reduce height for top and bottom borders
 	}
 
 	// Render panel content
@@ -713,7 +721,7 @@ func (t *TUI) handleInput(b []byte) func() {
 					col := atoi(parts[1]) - 1       // 0-based
 					screenRow := atoi(parts[2]) - 1 // 0-based screen row
 					switch btn {
-					case "64": // wheel up
+						case "64": // wheel up
 						t.focusedPanel().scrollUp(3)
 					case "65": // wheel down
 						t.focusedPanel().scrollDown(3)

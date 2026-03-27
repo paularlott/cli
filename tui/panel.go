@@ -534,6 +534,10 @@ func (p *Panel) renderRawLocked(buf *strings.Builder, theme *Theme, width, heigh
 		end = total
 	}
 
+	// Populate lastLines for selection support
+	p.region.lastLines = p.rawLines[start:end]
+	p.region.lastStart = start
+
 	spaces := strings.Repeat(" ", width)
 	for i := start; i < end; i++ {
 		row := i - start
