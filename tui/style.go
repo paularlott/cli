@@ -21,7 +21,7 @@ func Styled(color Color, text string) string {
 
 // Theme returns the active theme, allowing callers to access color values for use with Styled.
 func (t *TUI) Theme() *Theme {
-	t.mu.Lock()
-	defer t.mu.Unlock()
+	t.mu.RLock()
+	defer t.mu.RUnlock()
 	return t.theme
 }

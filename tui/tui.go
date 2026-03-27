@@ -389,7 +389,7 @@ func (t *TUI) AddCommand(cmd *Command) {
 func (t *TUI) RemoveCommand(name string) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	cmds := t.palette.commands[:0]
+	var cmds []*Command
 	for _, c := range t.palette.commands {
 		if c.Name != name {
 			cmds = append(cmds, c)
@@ -410,7 +410,7 @@ func (t *TUI) SetTheme(theme *Theme) {
 }
 
 // flashCopied briefly shows "✓ Copied" in the input overlay then clears selection.
-// If region is provided, clears that region's selection; otherwise clears main output.
+// Must be called with t.mu held. If region is provided, clears that region's selection.
 func (t *TUI) flashCopied(region *outputRegion) {
 	t.spinnerText = "✓ Copied"
 	go func() {
@@ -459,6 +459,17 @@ func (t *TUI) createPanel(cfg PanelConfig) *Panel {
 	return newPanel(cfg, t, color)
 }
 
+// getOrCreatePanel returns an existing panel by config name or creates one.
+// Must be called with t.mu held.
+func (t *TUI) getOrCreatePanel(cfg *PanelConfig) *Panel {
+	p := t.panels[cfg.Name]
+	if p == nil {
+		p = t.createPanel(*cfg)
+		t.panels[cfg.Name] = p
+	}
+	return p
+}
+
 // SetLayout configures the panel layout.
 func (t *TUI) SetLayout(cfg LayoutConfig) {
 	t.mu.Lock()
@@ -469,15 +480,11 @@ func (t *TUI) SetLayout(cfg LayoutConfig) {
 	// Create panels defined in layout (if not already created)
 	// Skip split parents - they're containers, not renderable panels
 	if cfg.Left != nil && cfg.Left.Top == nil && cfg.Left.Bottom == nil {
-		if _, ok := t.panels[cfg.Left.Name]; !ok {
-			t.panels[cfg.Left.Name] = t.createPanel(*cfg.Left)
-		}
+		t.getOrCreatePanel(cfg.Left)
 	}
 
 	if cfg.Right != nil && cfg.Right.Top == nil && cfg.Right.Bottom == nil {
-		if _, ok := t.panels[cfg.Right.Name]; !ok {
-			t.panels[cfg.Right.Name] = t.createPanel(*cfg.Right)
-		}
+		t.getOrCreatePanel(cfg.Right)
 	}
 
 	// Set initial focus to main panel (after all left panels)
@@ -654,66 +661,8 @@ func (t *TUI) HasMultiplePanels() bool {
 // focusedPanel returns the currently focused panel's output region.
 // Must be called with t.mu held.
 func (t *TUI) focusedPanel() *outputRegion {
-	idx := 0
-
-	// Helper to advance index and check focus match
-	checkFocus := func(cfg *PanelConfig) *outputRegion {
-		if cfg.SkipFocus {
-			return nil
-		}
-		if t.focusIdx == idx {
-			if p := t.panels[cfg.Name]; p != nil {
-				return p.region
-			}
-		}
-		idx++
-		return nil
+	if p := t.focusedPanelPtr(); p != nil {
+		return p.region
 	}
-
-	// Check left panel and its children
-	if t.layout.Left != nil {
-		if t.layout.Left.Top != nil {
-			if r := checkFocus(t.layout.Left.Top); r != nil {
-				return r
-			}
-		}
-		if t.layout.Left.Bottom != nil {
-			if r := checkFocus(t.layout.Left.Bottom); r != nil {
-				return r
-			}
-		}
-		if t.layout.Left.Top == nil && t.layout.Left.Bottom == nil {
-			if r := checkFocus(t.layout.Left); r != nil {
-				return r
-			}
-		}
-	}
-
-	// Main panel (always focusable)
-	if t.focusIdx == idx {
-		return t.output
-	}
-	idx++
-
-	// Check right panel and its children
-	if t.layout.Right != nil {
-		if t.layout.Right.Top != nil {
-			if r := checkFocus(t.layout.Right.Top); r != nil {
-				return r
-			}
-		}
-		if t.layout.Right.Bottom != nil {
-			if r := checkFocus(t.layout.Right.Bottom); r != nil {
-				return r
-			}
-		}
-		if t.layout.Right.Top == nil && t.layout.Right.Bottom == nil {
-			if r := checkFocus(t.layout.Right); r != nil {
-				return r
-			}
-		}
-	}
-
-	// Default to main output
 	return t.output
 }

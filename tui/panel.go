@@ -470,17 +470,17 @@ func (p *Panel) StyledWith(name string, text string) string {
 
 	var c Color
 	switch name {
-	case "primary":
+	case ThemePrimary:
 		c = theme.Primary
-	case "secondary":
+	case ThemeSecondary:
 		c = theme.Secondary
-	case "error":
+	case ThemeError:
 		c = theme.Error
-	case "dim":
+	case ThemeDim:
 		c = theme.Dim
-	case "text":
+	case ThemeText:
 		c = theme.Text
-	case "user":
+	case ThemeUser:
 		c = theme.UserText
 	default:
 		return text
@@ -563,7 +563,7 @@ func (p *Panel) renderRawLocked(buf *strings.Builder, theme *Theme, width, heigh
 				line = truncate(line, width)
 			}
 			if hasSelection && i >= selA.row && i <= selB.row {
-				line = applyHighlight(line, selA, selB, i, width)
+				line = applyHighlight(line, selA, selB, i)
 			}
 			buf.WriteString(line)
 			// Pad with spaces to fill width

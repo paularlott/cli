@@ -111,6 +111,7 @@ func (o *outputRegion) render(buf *strings.Builder, t *Theme, w, height, startRo
 // startRow and startCol are 1-based terminal positions.
 func (o *outputRegion) renderAt(buf *strings.Builder, t *Theme, w, height, startRow, startCol int) {
 	lineW := w
+	spaces := strings.Repeat(" ", lineW)
 
 	all := o.messages
 	if o.streaming != nil {
@@ -155,25 +156,25 @@ func (o *outputRegion) renderAt(buf *strings.Builder, t *Theme, w, height, start
 		buf.WriteString(linkReset)
 		line := truncate(lines[i], lineW)
 		if hasSelection && i >= selA.row && i <= selB.row {
-			line = applyHighlight(line, selA, selB, i, lineW)
+			line = applyHighlight(line, selA, selB, i)
 		}
 		buf.WriteString(line)
 		// Pad with spaces to fill the width (don't use clearLine - it clears to end of terminal)
 		if pad := lineW - visibleLen(line); pad > 0 {
-			buf.WriteString(strings.Repeat(" ", pad))
+			buf.WriteString(spaces[:pad])
 		}
 	}
 	for i := end - start; i < height; i++ {
 		buf.WriteString(cursorPos(startRow+i, startCol))
 		buf.WriteString(linkReset)
 		// Pad with spaces instead of clearing the line
-		buf.WriteString(strings.Repeat(" ", lineW))
+		buf.WriteString(spaces)
 	}
 }
 
 // applyHighlight wraps the selected column range of a rendered line with reverse video.
 // row, selA, selB are all indices into lastLines (0-based absolute).
-func applyHighlight(line string, selA, selB selAnchor, row, lineW int) string {
+func applyHighlight(line string, selA, selB selAnchor, row int) string {
 	plain := stripANSI(line)
 	runes := []rune(plain)
 	n := len(runes)
@@ -197,12 +198,12 @@ func applyHighlight(line string, selA, selB selAnchor, row, lineW int) string {
 	}
 
 	var b strings.Builder
+	b.Grow(n + 10)
 	b.WriteString(string(runes[:colStart]))
 	b.WriteString("\x1b[7m") // reverse video on
 	b.WriteString(string(runes[colStart:colEnd]))
 	b.WriteString("\x1b[27m") // reverse video off
 	b.WriteString(string(runes[colEnd:]))
-	_ = lineW
 	return b.String()
 }
 
@@ -379,42 +380,43 @@ func wordWrap(s string, w int) []string {
 	}
 	tokens := splitTokens(s)
 	var lines []string
-	current := ""
+	var current strings.Builder
 	currentW := 0
 	for _, tok := range tokens {
 		if tok == " " {
-			if current != "" {
-				current += " "
+			if current.Len() > 0 {
+				current.WriteByte(' ')
 				currentW++
 			}
 			continue
 		}
 		tokW := visibleLen(tok)
-		if current == "" {
+		if current.Len() == 0 {
 			if tokW > w {
 				lines = append(lines, splitHardWrap(tok, w)...)
 				continue
 			}
-			current = tok
+			current.WriteString(tok)
 			currentW = tokW
 		} else if currentW+1+tokW <= w {
-			current += tok
+			current.WriteString(tok)
 			currentW += tokW
 		} else {
-			lines = append(lines, strings.TrimRight(current, " "))
+			lines = append(lines, strings.TrimRight(current.String(), " "))
 			// Token doesn't fit on current line - check if it needs hard-wrapping
 			if tokW > w {
 				lines = append(lines, splitHardWrap(tok, w)...)
-				current = ""
+				current.Reset()
 				currentW = 0
 			} else {
-				current = tok
+				current.Reset()
+				current.WriteString(tok)
 				currentW = tokW
 			}
 		}
 	}
-	if current != "" {
-		lines = append(lines, strings.TrimRight(current, " "))
+	if current.Len() > 0 {
+		lines = append(lines, strings.TrimRight(current.String(), " "))
 	}
 	return lines
 }
@@ -524,7 +526,18 @@ func truncate(s string, n int) string {
 }
 
 func visibleLen(s string) int {
-	return utf8.RuneCountInString(stripANSI(s))
+	count := 0
+	i := 0
+	for i < len(s) {
+		if s[i] == '\x1b' {
+			i = scanEscape(s, i)
+			continue
+		}
+		_, size := utf8.DecodeRuneInString(s[i:])
+		i += size
+		count++
+	}
+	return count
 }
 
 func stripANSI(s string) string {

@@ -139,6 +139,42 @@ type panelLayout struct {
 	children  []panelLayout // for horizontal splits (top/bottom)
 }
 
+// sidePanelResult holds the result of processing a side panel (left or right).
+type sidePanelResult struct {
+	layout   panelLayout
+	consumed int
+	visible  bool
+}
+
+// processSidePanel calculates layout for a left or right panel.
+// Returns the panel layout, width consumed (including borders), and whether it's visible.
+func (t *TUI) processSidePanel(cfg *PanelConfig, remainingWidth, height int, currentFocusIdx *int) sidePanelResult {
+	w := t.calculatePanelWidth(cfg.Width, remainingWidth)
+	minW := cfg.MinWidth
+	if minW == 0 {
+		minW = 2
+	}
+	if w < minW {
+		return sidePanelResult{}
+	}
+	p := t.getOrCreatePanel(cfg)
+	hasBorder := !cfg.NoBorder
+	pl := panelLayout{
+		name: cfg.Name, panel: p, width: w, height: height, hasBorder: hasBorder,
+	}
+	if cfg.Top != nil || cfg.Bottom != nil {
+		pl.children = t.buildChildPanels(cfg, w, height, currentFocusIdx)
+	} else {
+		pl.focused = t.focusIdx == *currentFocusIdx
+		*currentFocusIdx++
+	}
+	consumed := w
+	if hasBorder {
+		consumed += 2
+	}
+	return sidePanelResult{layout: pl, consumed: consumed, visible: true}
+}
+
 // drawPanels renders multiple panels side by side with borders
 func (t *TUI) drawPanels(buf *strings.Builder, height int) {
 	// Build list of visible panels
@@ -146,78 +182,29 @@ func (t *TUI) drawPanels(buf *strings.Builder, height int) {
 	remainingWidth := t.width
 	currentFocusIdx := 0 // Track position in focus cycle
 
-	// Calculate widths and determine visibility
+	// Left panel
 	if t.layout.Left != nil {
-		cfg := t.layout.Left
-		w := t.calculatePanelWidth(cfg.Width, remainingWidth)
-		minW := cfg.MinWidth
-		if minW == 0 {
-			minW = 2 // default minimum
-		}
-		if w >= minW {
-			p := t.panels[cfg.Name]
-			if p == nil {
-				p = t.createPanel(*cfg)
-				t.panels[cfg.Name] = p
-			}
-			hasBorder := !cfg.NoBorder
-			pl := panelLayout{
-				name: cfg.Name, panel: p, width: w, height: height, hasBorder: hasBorder,
-			}
-			// Handle horizontal split (top/bottom children)
-			if cfg.Top != nil || cfg.Bottom != nil {
-				pl.children = t.buildChildPanels(cfg, w, height, &currentFocusIdx)
-			} else {
-				pl.focused = t.focusIdx == currentFocusIdx
-				currentFocusIdx++
-			}
-			panels = append(panels, pl)
-			remainingWidth -= w
-			if hasBorder {
-				remainingWidth -= 2 // left and right border columns
-			}
+		result := t.processSidePanel(t.layout.Left, remainingWidth, height, &currentFocusIdx)
+		if result.visible {
+			panels = append(panels, result.layout)
+			remainingWidth -= result.consumed
 		}
 	}
 
 	// Main panel always visible - always show border in multi-panel mode
 	mainFocusIdx := currentFocusIdx
-	mainHasBorder := true // Always show border in multi-panel mode
 	panels = append(panels, panelLayout{
-		name: "main", panel: t.mainPanel, width: 0, height: height, hasBorder: mainHasBorder,
+		name: "main", panel: t.mainPanel, width: 0, height: height, hasBorder: true,
 		focused: t.focusIdx == currentFocusIdx,
 	})
 	currentFocusIdx++
 
 	// Right panel
 	if t.layout.Right != nil {
-		cfg := t.layout.Right
-		w := t.calculatePanelWidth(cfg.Width, remainingWidth)
-		minW := cfg.MinWidth
-		if minW == 0 {
-			minW = 2 // default minimum
-		}
-		if w >= minW {
-			p := t.panels[cfg.Name]
-			if p == nil {
-				p = t.createPanel(*cfg)
-				t.panels[cfg.Name] = p
-			}
-			hasBorder := !cfg.NoBorder
-			pl := panelLayout{
-				name: cfg.Name, panel: p, width: w, height: height, hasBorder: hasBorder,
-			}
-			// Handle horizontal split (top/bottom children)
-			if cfg.Top != nil || cfg.Bottom != nil {
-				pl.children = t.buildChildPanels(cfg, w, height, &currentFocusIdx)
-			} else {
-				pl.focused = t.focusIdx == currentFocusIdx
-				currentFocusIdx++
-			}
-			panels = append(panels, pl)
-			remainingWidth -= w
-			if hasBorder {
-				remainingWidth -= 2 // left and right border columns
-			}
+		result := t.processSidePanel(t.layout.Right, remainingWidth, height, &currentFocusIdx)
+		if result.visible {
+			panels = append(panels, result.layout)
+			remainingWidth -= result.consumed
 		}
 	}
 
@@ -230,9 +217,6 @@ func (t *TUI) drawPanels(buf *strings.Builder, height int) {
 		mainWidth = 2
 	}
 	panels[mainFocusIdx].width = mainWidth
-	if panels[mainFocusIdx].width < 2 {
-		panels[mainFocusIdx].width = 2
-	}
 
 	// Calculate x positions
 	x := 0
@@ -302,11 +286,7 @@ func (t *TUI) buildChildPanels(cfg *PanelConfig, width, totalHeight int, current
 
 	// Build top child - each child has its own border
 	if cfg.Top != nil && topH > 0 {
-		p := t.panels[cfg.Top.Name]
-		if p == nil {
-			p = t.createPanel(*cfg.Top)
-			t.panels[cfg.Top.Name] = p
-		}
+		p := t.getOrCreatePanel(cfg.Top)
 		children = append(children, panelLayout{
 			name:      cfg.Top.Name,
 			panel:     p,
@@ -320,11 +300,7 @@ func (t *TUI) buildChildPanels(cfg *PanelConfig, width, totalHeight int, current
 
 	// Build bottom child - each child has its own border
 	if cfg.Bottom != nil && bottomH > 0 {
-		p := t.panels[cfg.Bottom.Name]
-		if p == nil {
-			p = t.createPanel(*cfg.Bottom)
-			t.panels[cfg.Bottom.Name] = p
-		}
+		p := t.getOrCreatePanel(cfg.Bottom)
 		children = append(children, panelLayout{
 			name:      cfg.Bottom.Name,
 			panel:     p,
