@@ -122,14 +122,20 @@ func (o *outputRegion) renderAt(buf *strings.Builder, t *Theme, w, height, start
 		lines = append(lines, renderMessage(m, t, lineW, o.userLabel, o.assistantLabel, o.systemLabel, o.hideHeaders)...)
 	}
 
-	o.lastLines = lines
+	// Only update lastLines/lastStart if there's no active selection.
+	// This freezes the selection target during drag operations on dynamic content.
+	if o.sel == nil {
+		o.lastLines = lines
+	}
 
 	total := len(lines)
 	maxOff := max(0, total-height)
 	o.scrollOff = min(o.scrollOff, maxOff)
 
 	start := max(0, total-height-o.scrollOff)
-	o.lastStart = start
+	if o.sel == nil {
+		o.lastStart = start
+	}
 	end := min(total, start+height)
 
 	// Normalise selection so a0 <= a1.

@@ -410,14 +410,17 @@ func (t *TUI) SetTheme(theme *Theme) {
 }
 
 // flashCopied briefly shows "✓ Copied" in the input overlay then clears selection.
-func (t *TUI) flashCopied() {
+// If region is provided, clears that region's selection; otherwise clears main output.
+func (t *TUI) flashCopied(region *outputRegion) {
 	t.spinnerText = "✓ Copied"
 	go func() {
 		time.Sleep(1500 * time.Millisecond)
 		t.mu.Lock()
 		if t.spinnerText == "✓ Copied" {
 			t.spinnerText = ""
-			t.output.sel = nil
+			if region != nil {
+				region.sel = nil
+			}
 			t.draw()
 		}
 		t.mu.Unlock()

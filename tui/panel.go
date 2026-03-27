@@ -534,9 +534,24 @@ func (p *Panel) renderRawLocked(buf *strings.Builder, theme *Theme, width, heigh
 		end = total
 	}
 
-	// Populate lastLines for selection support
-	p.region.lastLines = p.rawLines[start:end]
-	p.region.lastStart = start
+	// Populate lastLines for selection support, but only if no active selection.
+	// This freezes the selection target during drag operations on dynamic content.
+	// Store ALL lines (not just the visible window) so selection indices work correctly.
+	if p.region.sel == nil {
+		p.region.lastLines = p.rawLines
+		p.region.lastStart = start
+	}
+
+	// Normalise selection for highlight rendering
+	var selA, selB selAnchor
+	hasSelection := p.region.sel != nil
+	if hasSelection {
+		a, b := p.region.sel[0], p.region.sel[1]
+		if a.row > b.row || (a.row == b.row && a.col > b.col) {
+			a, b = b, a
+		}
+		selA, selB = a, b
+	}
 
 	spaces := strings.Repeat(" ", width)
 	for i := start; i < end; i++ {
@@ -547,9 +562,12 @@ func (p *Panel) renderRawLocked(buf *strings.Builder, theme *Theme, width, heigh
 			if utf8.RuneCountInString(line) > width {
 				line = truncate(line, width)
 			}
+			if hasSelection && i >= selA.row && i <= selB.row {
+				line = applyHighlight(line, selA, selB, i, width)
+			}
 			buf.WriteString(line)
 			// Pad with spaces to fill width
-			if pad := width - utf8.RuneCountInString(line); pad > 0 {
+			if pad := width - visibleLen(line); pad > 0 {
 				buf.WriteString(spaces[:pad])
 			}
 		} else {

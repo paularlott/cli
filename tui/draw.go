@@ -510,8 +510,13 @@ func (t *TUI) handleInput(b []byte) func() {
 
 	// Clear selection on any non-mouse keypress.
 	isMouse := len(b) >= 3 && b[0] == 0x1b && b[1] == '[' && (b[2] == '<' || b[2] == 'M')
-	if !isMouse && t.output.sel != nil {
-		t.output.sel = nil
+	if !isMouse {
+		// Clear selection in all panels
+		for _, p := range t.panels {
+			if p.region.sel != nil {
+				p.region.sel = nil
+			}
+		}
 	}
 
 	// Menu navigation takes priority.
@@ -726,37 +731,33 @@ func (t *TUI) handleInput(b []byte) func() {
 					case "65": // wheel down
 						t.focusedPanel().scrollDown(3)
 					case "0": // left button press/release
-						// Convert screen coordinates to panel-relative
-						xOffset := t.mainPanelContentXOffset()
-						yOffset := t.mainPanelContentYOffset()
-						panelCol := screenCol - xOffset
-						panelRow := screenRow - yOffset
-						lineIdx := t.output.lastStart + panelRow
-						if panelRow >= 0 && panelRow < t.outputHeight() && lineIdx < len(t.output.lastLines) && panelCol >= 0 {
+						panelInfo := t.panelAtPosition(screenCol, screenRow)
+						panelCol := screenCol - panelInfo.xOffset
+						panelRow := screenRow - panelInfo.yOffset
+						lineIdx := panelInfo.region.lastStart + panelRow
+						if panelRow >= 0 && panelRow < panelInfo.height && lineIdx < len(panelInfo.region.lastLines) && panelCol >= 0 {
 							pt := selAnchor{row: lineIdx, col: panelCol}
 							if !release {
-								t.output.sel = &[2]selAnchor{pt, pt}
-							} else if t.output.sel != nil {
-								t.output.sel[1] = pt
-								if text := t.output.selectionText(); text != "" {
+								panelInfo.region.sel = &[2]selAnchor{pt, pt}
+							} else if panelInfo.region.sel != nil {
+								panelInfo.region.sel[1] = pt
+								if text := panelInfo.region.selectionText(); text != "" {
 									fmt.Print(CopyToClipboard(text))
-									t.flashCopied()
+									t.flashCopied(panelInfo.region)
 								} else {
-									t.output.sel = nil
+									panelInfo.region.sel = nil
 								}
 							}
 						} else if release {
-							t.output.sel = nil
+							panelInfo.region.sel = nil
 						}
 					case "32": // left button drag (motion)
-						// Convert screen coordinates to panel-relative
-						xOffset := t.mainPanelContentXOffset()
-						yOffset := t.mainPanelContentYOffset()
-						panelCol := screenCol - xOffset
-						panelRow := screenRow - yOffset
-						lineIdx := t.output.lastStart + panelRow
-						if t.output.sel != nil && panelRow >= 0 && panelRow < t.outputHeight() && lineIdx < len(t.output.lastLines) && panelCol >= 0 {
-							t.output.sel[1] = selAnchor{row: lineIdx, col: panelCol}
+						panelInfo := t.panelAtPosition(screenCol, screenRow)
+						panelCol := screenCol - panelInfo.xOffset
+						panelRow := screenRow - panelInfo.yOffset
+						lineIdx := panelInfo.region.lastStart + panelRow
+						if panelInfo.region.sel != nil && panelRow >= 0 && panelRow < panelInfo.height && lineIdx < len(panelInfo.region.lastLines) && panelCol >= 0 {
+							panelInfo.region.sel[1] = selAnchor{row: lineIdx, col: panelCol}
 						}
 					}
 				}
