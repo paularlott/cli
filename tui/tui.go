@@ -100,6 +100,10 @@ type Config struct {
 	// When false, the input box, char count, and palette are hidden and
 	// keyboard input only handles scrolling and Ctrl+C.
 	InputEnabled *bool
+
+	// OnFocusChange is called when panel focus changes via Tab cycling.
+	// The callback receives the newly focused panel.
+	OnFocusChange func(panel *Panel)
 }
 
 var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
@@ -113,6 +117,9 @@ type TUI struct {
 	palette       *palette
 	width         int
 	height        int
+	prevWidth     int // Previous width for resize detection
+	prevHeight    int // Previous height for resize detection
+	prevOutputH   int // Previous output height for layout change detection
 	fd            int
 	oldState      *term.State
 	quit          bool
@@ -124,6 +131,14 @@ type TUI struct {
 	progressLabel string
 	ctx           context.Context
 	menu          *menuState
+
+	// Panel support
+	panels        map[string]*Panel
+	mainPanel     *Panel // Cached main panel for legacy methods
+	leftRoot      *Panel // Root of left panel tree
+	rightRoot     *Panel // Root of right panel tree
+	focusIdx      int    // Index of focused panel (0=left, 1=main, 2=right)
+	panelColorIdx int    // For auto-assigning panel colors
 }
 
 // New creates a new TUI with the given configuration.
@@ -140,6 +155,7 @@ func New(cfg Config) *TUI {
 		cfg:      cfg,
 		theme:    cfg.Theme,
 		progress: -1,
+		panels:   make(map[string]*Panel),
 		output: &outputRegion{
 			userLabel:      cfg.UserLabel,
 			assistantLabel: cfg.AssistantLabel,
@@ -148,6 +164,16 @@ func New(cfg Config) *TUI {
 		},
 		input: newInputArea(),
 	}
+
+	// Create main panel wrapping the existing output region
+	t.mainPanel = &Panel{
+		name:   "main",
+		tui:    t,
+		region: t.output,
+		color:  cfg.Theme.Primary,
+	}
+	t.panels["main"] = t.mainPanel
+
 	t.palette = newPalette(cfg.Commands)
 	return t
 }
@@ -176,6 +202,14 @@ func (t *TUI) Context() context.Context {
 	return t.ctx
 }
 
+// TerminalSize returns the full terminal dimensions (width, height).
+// Returns 0, 0 if the terminal size has not been determined yet.
+func (t *TUI) TerminalSize() (width, height int) {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	return t.width, t.height
+}
+
 // Exit cleanly shuts down the TUI event loop.
 // Useful as a /exit command handler: func(_ string) { t.Exit() }
 func (t *TUI) Exit() {
@@ -186,67 +220,42 @@ func (t *TUI) Exit() {
 
 // AddMessageAs appends a complete message with a custom label.
 func (t *TUI) AddMessageAs(role MessageRole, label, content string) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	t.output.AddMessageAs(role, label, content)
-	t.draw()
+	t.mainPanel.AddMessageAs(role, label, content)
 }
 
 // AddMessage appends a complete message to the output region.
 func (t *TUI) AddMessage(role MessageRole, content string) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	t.output.AddMessage(role, content)
-	t.draw()
+	t.mainPanel.AddMessage(role, content)
 }
 
 // IsStreaming returns true if a streaming message is in progress.
 func (t *TUI) IsStreaming() bool {
-	t.mu.RLock()
-	defer t.mu.RUnlock()
-	return t.output.streaming != nil
+	return t.mainPanel.IsStreaming()
 }
 
 // StartStreaming begins a new streaming assistant message.
 func (t *TUI) StartStreaming() {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	t.output.StartStreaming()
-	t.draw()
+	t.mainPanel.StartStreaming()
 }
 
 // StartStreamingAs begins a new streaming assistant message with a custom label.
 func (t *TUI) StartStreamingAs(label string) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	t.output.StartStreamingAs(label)
-	t.draw()
+	t.mainPanel.StartStreamingAs(label)
 }
 
 // StreamChunk appends a chunk to the current streaming message.
 func (t *TUI) StreamChunk(chunk string) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	t.output.StreamChunk(chunk)
-	t.draw()
+	t.mainPanel.StreamChunk(chunk)
 }
 
 // StopStreaming finalises any in-progress streaming message.
 func (t *TUI) StopStreaming() {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	if t.output.streaming != nil {
-		t.output.StreamComplete()
-		t.draw()
-	}
+	t.mainPanel.StopStreaming()
 }
 
 // StreamComplete finalises the streaming message.
 func (t *TUI) StreamComplete() {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	t.output.StreamComplete()
-	t.draw()
+	t.mainPanel.StreamComplete()
 }
 
 func (t *TUI) inputEnabled() bool {
@@ -255,26 +264,20 @@ func (t *TUI) inputEnabled() bool {
 
 // ClearOutput removes all messages from the output region.
 func (t *TUI) ClearOutput() {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	t.output.Clear()
-	t.draw()
+	t.mainPanel.Clear()
 }
 
-// refresh redraws the screen.
-func (t *TUI) refresh() {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	t.draw()
+func (t *TUI) WriteString(s string) {
+	t.mainPanel.WriteString(s)
 }
 
 // SetLabels updates the default role labels shown in message headers.
 // Empty strings leave the corresponding label unchanged.
 func (t *TUI) SetLabels(user, assistant, system string) {
 	t.mu.Lock()
+	defer t.mu.Unlock()
 	t.output.SetLabels(user, assistant, system)
-	t.mu.Unlock()
-	t.refresh()
+	t.draw()
 }
 
 // SetStatus updates both status bar texts.
@@ -355,13 +358,7 @@ func (t *TUI) SetProgress(label string, value float64) {
 		t.spinnerStop = nil
 		t.spinnerText = ""
 	}
-	if value < 0 {
-		value = 0
-	}
-	if value > 1 {
-		value = 1
-	}
-	t.progress = value
+	t.progress = min(1, max(0, value))
 	t.progressLabel = label
 	t.draw()
 }
@@ -393,7 +390,7 @@ func (t *TUI) AddCommand(cmd *Command) {
 func (t *TUI) RemoveCommand(name string) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	cmds := t.palette.commands[:0]
+	var cmds []*Command
 	for _, c := range t.palette.commands {
 		if c.Name != name {
 			cmds = append(cmds, c)
@@ -414,16 +411,250 @@ func (t *TUI) SetTheme(theme *Theme) {
 }
 
 // flashCopied briefly shows "✓ Copied" in the input overlay then clears selection.
-func (t *TUI) flashCopied() {
+// Must be called with t.mu held. If region is provided, clears that region's selection.
+func (t *TUI) flashCopied(region *outputRegion) {
 	t.spinnerText = "✓ Copied"
 	go func() {
 		time.Sleep(1500 * time.Millisecond)
 		t.mu.Lock()
 		if t.spinnerText == "✓ Copied" {
 			t.spinnerText = ""
-			t.output.sel = nil
+			if region != nil {
+				region.sel = nil
+			}
 			t.draw()
 		}
 		t.mu.Unlock()
 	}()
+}
+
+// redraw acquires the lock and redraws the screen.
+func (t *TUI) redraw() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.draw()
+}
+
+// Panel returns the panel with the given name.
+// The special name "main" returns the main panel.
+// Returns nil if no panel with that name exists.
+func (t *TUI) Panel(name string) *Panel {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	return t.panels[name]
+}
+
+// createPanel creates a new panel with auto-assigned color.
+// Must be called with t.mu held.
+func (t *TUI) createPanel(cfg PanelConfig) *Panel {
+	colors := []Color{t.theme.Primary, t.theme.Secondary}
+	color := colors[t.panelColorIdx%len(colors)]
+	t.panelColorIdx++
+	return newPanel(cfg, t, color)
+}
+
+// CreatePanel creates a new panel without adding it to the layout.
+// The panel is stored in the TUI's panel map by name (if name is non-empty).
+// Use AddLeft or AddRight to attach it to the layout.
+func (t *TUI) CreatePanel(cfg PanelConfig) *Panel {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	p := t.createPanel(cfg)
+	if cfg.Name != "" {
+		t.panels[cfg.Name] = p
+	}
+	return p
+}
+
+// AddLeft attaches the given panel (and any children) to the left of the main panel.
+func (t *TUI) AddLeft(panel *Panel) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.leftRoot = panel
+	// Set initial focus to main panel (after all left panels)
+	t.focusIdx = t.countPanelChildren(t.leftRoot)
+	t.draw()
+}
+
+// AddRight attaches the given panel (and any children) to the right of the main panel.
+func (t *TUI) AddRight(panel *Panel) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.rightRoot = panel
+	t.draw()
+}
+
+// ClearLayout removes the layout tree but keeps all panels and their content.
+func (t *TUI) ClearLayout() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.leftRoot = nil
+	t.rightRoot = nil
+	t.focusIdx = 0
+	t.draw()
+}
+
+// FocusPanel sets the focused panel by index.
+func (t *TUI) FocusPanel(idx int) {
+	var cb func(*Panel)
+	var panel *Panel
+
+	t.mu.Lock()
+	visible := t.countFocusablePanels()
+	if idx >= 0 && idx < visible && idx != t.focusIdx {
+		t.focusIdx = idx
+		t.draw()
+		if t.cfg.OnFocusChange != nil {
+			cb = t.cfg.OnFocusChange
+			panel = t.focusedPanelPtr()
+		}
+	}
+	t.mu.Unlock()
+
+	if cb != nil && panel != nil {
+		cb(panel)
+	}
+}
+
+// FocusedPanel returns the currently focused panel.
+// Returns nil if no panel is focused (shouldn't happen in normal use).
+func (t *TUI) FocusedPanel() *Panel {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	return t.focusedPanelPtr()
+}
+
+// focusedPanelPtr returns the focused panel's *Panel. Must be called with t.mu held.
+func (t *TUI) focusedPanelPtr() *Panel {
+	idx := 0
+
+	// Check left panel tree
+	if p := t.walkFocusTree(t.leftRoot, &idx); p != nil {
+		return p
+	}
+
+	// Main panel (always focusable)
+	if t.focusIdx == idx {
+		return t.mainPanel
+	}
+	idx++
+
+	// Check right panel tree
+	if p := t.walkFocusTree(t.rightRoot, &idx); p != nil {
+		return p
+	}
+
+	// Default to main panel
+	return t.mainPanel
+}
+
+// walkFocusTree walks a panel tree looking for the focused leaf panel.
+// idx is updated as panels are visited. Must be called with t.mu held.
+func (t *TUI) walkFocusTree(root *Panel, idx *int) *Panel {
+	if root == nil {
+		return nil
+	}
+	children := root.rows
+	if len(children) == 0 {
+		children = root.columns
+	}
+	if len(children) > 0 {
+		for _, child := range children {
+			if p := t.walkFocusTree(child, idx); p != nil {
+				return p
+			}
+		}
+		return nil
+	}
+	// Leaf panel
+	if root.skipFocus {
+		return nil
+	}
+	if t.focusIdx == *idx {
+		return root
+	}
+	*idx++
+	return nil
+}
+
+// CycleFocus moves focus to the next panel.
+func (t *TUI) CycleFocus() {
+	t.mu.Lock()
+	cb := t.cycleFocusLocked()
+	t.mu.Unlock()
+	if cb != nil {
+		cb()
+	}
+}
+
+// countFocusablePanels counts all focusable panels including children.
+func (t *TUI) countFocusablePanels() int {
+	count := 1 // main always focusable
+
+	if t.leftRoot != nil {
+		count += t.countPanelChildren(t.leftRoot)
+	}
+	if t.rightRoot != nil {
+		count += t.countPanelChildren(t.rightRoot)
+	}
+
+	return count
+}
+
+// countPanelChildren counts focusable panels (excluding SkipFocus ones).
+func (t *TUI) countPanelChildren(root *Panel) int {
+	if root == nil {
+		return 0
+	}
+	children := root.rows
+	if len(children) == 0 {
+		children = root.columns
+	}
+	if len(children) > 0 {
+		count := 0
+		for _, child := range children {
+			count += t.countPanelChildren(child)
+		}
+		return count
+	}
+	if root.skipFocus {
+		return 0
+	}
+	return 1
+}
+
+// cycleFocusLocked moves focus to the next panel. Must be called with t.mu held.
+// Returns a callback to invoke after releasing the lock, or nil.
+func (t *TUI) cycleFocusLocked() func() {
+	visible := t.countFocusablePanels()
+	t.focusIdx = (t.focusIdx + 1) % visible
+	t.draw()
+
+	if t.cfg.OnFocusChange != nil {
+		panel := t.focusedPanelPtr()
+		return func() { t.cfg.OnFocusChange(panel) }
+	}
+	return nil
+}
+
+// hasMultiplePanels returns true if there's more than one visible panel.
+func (t *TUI) hasMultiplePanels() bool {
+	return t.leftRoot != nil || t.rightRoot != nil
+}
+
+// HasMultiplePanels returns true if there's more than one visible panel.
+func (t *TUI) HasMultiplePanels() bool {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	return t.hasMultiplePanels()
+}
+
+// focusedPanel returns the currently focused panel's output region.
+// Must be called with t.mu held.
+func (t *TUI) focusedPanel() *outputRegion {
+	if p := t.focusedPanelPtr(); p != nil {
+		return p.region
+	}
+	return t.output
 }

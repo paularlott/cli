@@ -1,18 +1,31 @@
 package tui
 
-import "fmt"
+import (
+	"strconv"
+	"strings"
+)
 
 const (
 	esc   = "\x1b["
 	reset = "\x1b[0m"
 )
 
-func cursorPos(row, col int) string    { return fmt.Sprintf("%s%d;%dH", esc, row, col) }
-func clearLine() string                { return esc + "2K" }
-func clearScreen() string              { return esc + "2J" }
-func hideCursor() string               { return esc + "?25l" }
-func showCursor() string               { return esc + "?25h" }
-func resetScrollRegion() string        { return esc + "r" }
+func cursorPos(row, col int) string {
+	var b strings.Builder
+	b.Grow(8)
+	b.WriteString(esc)
+	b.WriteString(strconv.Itoa(row))
+	b.WriteByte(';')
+	b.WriteString(strconv.Itoa(col))
+	b.WriteByte('H')
+	return b.String()
+}
+
+func clearLine() string         { return esc + "2K" }
+func clearScreen() string       { return esc + "2J" }
+func hideCursor() string        { return esc + "?25l" }
+func showCursor() string        { return esc + "?25h" }
+func resetScrollRegion() string { return esc + "r" }
 
 func fg(c Color) string {
 	if c == 0 {
@@ -21,7 +34,17 @@ func fg(c Color) string {
 	r := (c >> 16) & 0xff
 	g := (c >> 8) & 0xff
 	b := c & 0xff
-	return fmt.Sprintf("%s38;2;%d;%d;%dm", esc, r, g, b)
+	var buf strings.Builder
+	buf.Grow(20)
+	buf.WriteString(esc)
+	buf.WriteString("38;2;")
+	buf.WriteString(strconv.Itoa(int(r)))
+	buf.WriteByte(';')
+	buf.WriteString(strconv.Itoa(int(g)))
+	buf.WriteByte(';')
+	buf.WriteString(strconv.Itoa(int(b)))
+	buf.WriteByte('m')
+	return buf.String()
 }
 
 func bg(c Color) string {
@@ -31,7 +54,17 @@ func bg(c Color) string {
 	r := (c >> 16) & 0xff
 	g := (c >> 8) & 0xff
 	b := c & 0xff
-	return fmt.Sprintf("%s48;2;%d;%d;%dm", esc, r, g, b)
+	var buf strings.Builder
+	buf.Grow(20)
+	buf.WriteString(esc)
+	buf.WriteString("48;2;")
+	buf.WriteString(strconv.Itoa(int(r)))
+	buf.WriteByte(';')
+	buf.WriteString(strconv.Itoa(int(g)))
+	buf.WriteByte(';')
+	buf.WriteString(strconv.Itoa(int(b)))
+	buf.WriteByte('m')
+	return buf.String()
 }
 
 func bold() string    { return esc + "1m" }

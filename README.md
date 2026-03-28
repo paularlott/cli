@@ -11,13 +11,14 @@ This library was developed to address the need for creating CLI applications wit
 - Flags including global flags
 - Configuration file support (TOML and JSON)
 - Environment variable support
-- **.env file support** - Load environment variables from .env files with variable expansion
+- .env file support with variable expansion
 - Built-in help and version commands
 - Optional suggestions when command not found
 - Automatic help generation
-- Command completions for Bash, Zsh, Fish and PowerShell
+- Shell completions for Bash, Zsh, Fish, and PowerShell
 - Storing of flag values into variables
 - Type safe
+- Full-screen TUI framework (themes, streaming, menus, panels)
 
 ## Installation
 
@@ -25,7 +26,7 @@ This library was developed to address the need for creating CLI applications wit
 go get github.com/paularlott/cli
 ```
 
-Requires Go version 1.24.4 or later
+Requires Go 1.26.1 or later
 
 ## Quick Start
 
@@ -71,15 +72,7 @@ func main() {
 
 ## .env File Support
 
-The package includes a sub-package for loading `.env` files. This allows you to define environment variables in a file and have them automatically loaded into your application.
-
-### Installation
-
-```bash
-go get github.com/paularlott/cli/env
-```
-
-### Quick Start
+The `env` sub-package loads `.env` files with variable expansion, comments, and quoted values:
 
 ```go
 package main
@@ -133,12 +126,10 @@ LOG_PATH=${BASE_DIR}/logs
 
 ### Features
 
-- **Variable Expansion**: Use `${VAR}` or `$VAR` syntax to reference other environment variables
-- **Comments**: Full-line (`# comment`) and inline (`KEY=value # comment`) comments supported
-- **Quoted Values**: Both single and double quotes with escape sequence support
-- **Whitespace Handling**: Spaces around the `=` sign are permitted
-- **Multiple Files**: Load multiple `.env` files in order
-- **No Dependencies**: Uses only Go standard library
+- Variable expansion with `${VAR}` or `$VAR`
+- Full-line and inline comments
+- Single/double quoted values with escape sequences
+- Multiple files loaded in order
 
 For more details, see the [dotenv example](examples/dotenv/) or the [env package documentation](env/).
 

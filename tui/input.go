@@ -244,10 +244,7 @@ func (a *inputArea) render(buf *strings.Builder, t *Theme, w, maxHeight, startRo
 	} else {
 		ovl := " " + overlay + " "
 		ovlLen := visibleLen(ovl)
-		dashW := w - 2 - ovlLen
-		if dashW < 0 {
-			dashW = 0
-		}
+		dashW := max(0, w-2-ovlLen)
 		buf.WriteString(fg(t.Dim) + "┌" + strings.Repeat("─", dashW) + reset + fg(t.Primary) + ovl + reset + fg(t.Dim) + "┐" + reset)
 	}
 
@@ -295,26 +292,17 @@ func (a *inputArea) render(buf *strings.Builder, t *Theme, w, maxHeight, startRo
 		right := " " + statusRight + " "
 		leftLen := visibleLen(left)
 		rightLen := visibleLen(right)
-		dashW := w - 2 - leftLen - rightLen
-		if dashW < 0 {
-			dashW = 0
-		}
+		dashW := max(0, w-2-leftLen-rightLen)
 		buf.WriteString(fg(t.Dim) + "└" + reset + fg(t.Dim) + left + reset + fg(t.Dim) + strings.Repeat("─", dashW) + reset + fg(t.Dim) + right + reset + fg(t.Dim) + "┘" + reset)
 	case statusLeft != "":
 		left := " " + statusLeft + " "
 		leftLen := visibleLen(left)
-		dashW := w - 2 - leftLen
-		if dashW < 0 {
-			dashW = 0
-		}
+		dashW := max(0, w-2-leftLen)
 		buf.WriteString(fg(t.Dim) + "└" + reset + fg(t.Dim) + left + reset + fg(t.Dim) + strings.Repeat("─", dashW) + "┘" + reset)
 	case statusRight != "":
 		right := " " + statusRight + " "
 		rightLen := visibleLen(right)
-		dashW := w - 2 - rightLen
-		if dashW < 0 {
-			dashW = 0
-		}
+		dashW := max(0, w-2-rightLen)
 		buf.WriteString(fg(t.Dim) + "└" + strings.Repeat("─", dashW) + reset + fg(t.Dim) + right + reset + fg(t.Dim) + "┘" + reset)
 	default:
 		buf.WriteString(fg(t.Dim) + "└" + strings.Repeat("─", w-2) + "┘" + reset)

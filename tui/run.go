@@ -74,13 +74,15 @@ func (t *TUI) restore() {
 	fmt.Print(resetScrollRegion(), showCursor(), reset)
 }
 
-func (t *TUI) resize() {
+func (t *TUI) resize() bool {
 	w, h, err := term.GetSize(t.fd)
 	if err != nil || w < 10 || h < 5 {
 		w, h = 80, 24
 	}
+	changed := t.width != w || t.height != h
 	t.width = w
 	t.height = h
+	return changed
 }
 
 // outputHeight returns the number of rows the output region occupies.
@@ -98,6 +100,185 @@ func (t *TUI) outputHeight() int {
 		h = 1
 	}
 	return h
+}
+
+// focusedPanelInfo holds layout info for a panel needed for mouse selection
+type focusedPanelInfo struct {
+	region  *outputRegion
+	xOffset int // 0-based column where panel content starts
+	yOffset int // 0-based row where panel content starts
+	height  int // content height in rows
+}
+
+// panelAtPosition returns layout info for whichever panel contains the given
+// screen coordinates. Falls back to main panel if nothing matches.
+func (t *TUI) panelAtPosition(screenCol, screenRow int) focusedPanelInfo {
+	outputH := t.outputHeight()
+
+	// Single panel mode — always main
+	if !t.hasMultiplePanels() {
+		return focusedPanelInfo{
+			region:  t.output,
+			xOffset: 0,
+			yOffset: 0,
+			height:  outputH,
+		}
+	}
+
+	// Helper to check visibility
+	isVisible := func(p *Panel, availW int) (int, bool) {
+		w := t.calculatePanelWidth(p.layoutWidth, availW)
+		minW := p.minWidth
+		if minW == 0 {
+			minW = 2
+		}
+		return w, w >= minW
+	}
+
+	// Helper to compute content bounds for a panel
+	panelBounds := func(panel *Panel, px, py, h int, hasBorder bool) focusedPanelInfo {
+		contentX := px
+		contentY := py
+		if hasBorder {
+			contentX += 1
+			contentY += 1
+			h -= 2
+		}
+		if h < 1 {
+			h = 1
+		}
+		return focusedPanelInfo{
+			region:  panel.region,
+			xOffset: contentX,
+			yOffset: contentY,
+			height:  h,
+		}
+	}
+
+	// Helper to check if a point is inside a content rect
+	contains := func(col, row, rx, ry, rw, rh int) bool {
+		return col >= rx && col < rx+rw && row >= ry && row < ry+rh
+	}
+
+	// Helper to check a panel (possibly split) and return info if hit
+	checkPanel := func(p *Panel, px int, availW int) (focusedPanelInfo, int, bool) {
+		w, visible := isVisible(p, availW)
+		if !visible {
+			return focusedPanelInfo{}, 0, false
+		}
+		hasBorder := !p.noBorder
+		totalW := w
+		if hasBorder {
+			totalW += 2
+		}
+
+		if len(p.rows) > 0 {
+			y := 0
+			availH := outputH
+			rowHeights := distributeRowHeights(p, availH)
+			for i, child := range p.rows {
+				h := rowHeights[i]
+				b := panelBounds(child, px, y, h, !child.noBorder)
+				if contains(screenCol, screenRow, b.xOffset, b.yOffset, w, b.height) {
+					return b, totalW, true
+				}
+				y += h
+			}
+		} else {
+			b := panelBounds(p, px, 0, outputH, hasBorder)
+			if contains(screenCol, screenRow, b.xOffset, b.yOffset, w, b.height) {
+				return b, totalW, true
+			}
+		}
+		return focusedPanelInfo{}, totalW, false
+	}
+
+	// Calculate widths in the SAME order as drawPanels:
+	// left panel takes its share, right panel takes its share from remainder,
+	// then main panel gets what's left. Layout on screen is: left | main | right.
+
+	remainingWidth := t.width
+
+	// Step 1: Calculate left panel width
+	leftTotalW := 0
+	if t.leftRoot != nil {
+		p := t.leftRoot
+		w, visible := isVisible(p, remainingWidth)
+		if visible {
+			leftTotalW = w
+			if !p.noBorder {
+				leftTotalW += 2
+			}
+			remainingWidth -= leftTotalW
+		}
+	}
+
+	// Step 2: Calculate right panel width (from remainder after left, before main)
+	var rightTotalW int
+	rightVisible := false
+	if t.rightRoot != nil {
+		p := t.rightRoot
+		w, vis := isVisible(p, remainingWidth)
+		if vis {
+			rightTotalW = w
+			if !p.noBorder {
+				rightTotalW += 2
+			}
+			rightVisible = true
+		}
+	}
+
+	// Step 3: Main panel gets the rest
+	mainWidth := remainingWidth - rightTotalW
+	mainBorderW := 2 // always has border in multi-panel
+	mainContentW := mainWidth - mainBorderW
+	if mainContentW < 2 {
+		mainContentW = 2
+	}
+
+	// Now walk panels in display order (left -> main -> right), checking hits
+	x := 0
+
+	// Left panel hit test
+	if t.leftRoot != nil && leftTotalW > 0 {
+		p := t.leftRoot
+		if b, _, hit := checkPanel(p, x, t.width); hit {
+			return b
+		}
+		x += leftTotalW
+	}
+
+	// Main panel hit test
+	{
+		b := focusedPanelInfo{
+			region:  t.output,
+			xOffset: x + 1,
+			yOffset: 1,
+			height:  outputH - 2,
+		}
+		if contains(screenCol, screenRow, b.xOffset, b.yOffset, mainContentW, b.height) {
+			return b
+		}
+		x += mainWidth
+	}
+
+	// Right panel hit test
+	if t.rightRoot != nil && rightVisible {
+		p := t.rightRoot
+		// Right panel's available width was remainingWidth after left (before main took its share)
+		rightAvailW := remainingWidth + rightTotalW // restore: this is what was available after left
+		if b, _, hit := checkPanel(p, x, rightAvailW); hit {
+			return b
+		}
+	}
+
+	// Fallback: main panel
+	return focusedPanelInfo{
+		region:  t.output,
+		xOffset: x + 1,
+		yOffset: 1,
+		height:  outputH - 2,
+	}
 }
 
 // inputBoxHeight returns the number of rows the input box occupies (including borders).

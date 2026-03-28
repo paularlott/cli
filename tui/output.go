@@ -99,17 +99,19 @@ func (o *outputRegion) SetLabels(user, assistant, system string) {
 }
 
 func (o *outputRegion) scrollUp(n int)   { o.scrollOff += n }
-func (o *outputRegion) scrollDown(n int) {
-	o.scrollOff -= n
-	if o.scrollOff < 0 {
-		o.scrollOff = 0
-	}
-}
+func (o *outputRegion) scrollDown(n int) { o.scrollOff = max(0, o.scrollOff-n) }
 
 // render draws the output region into buf, using height terminal rows of width w.
 // startRow is the 1-based terminal row where the region begins.
 func (o *outputRegion) render(buf *strings.Builder, t *Theme, w, height, startRow int) {
+	o.renderAt(buf, t, w, height, startRow, 1)
+}
+
+// renderAt draws the output region at a specific column position.
+// startRow and startCol are 1-based terminal positions.
+func (o *outputRegion) renderAt(buf *strings.Builder, t *Theme, w, height, startRow, startCol int) {
 	lineW := w
+	spaces := strings.Repeat(" ", lineW)
 
 	all := o.messages
 	if o.streaming != nil {
@@ -121,26 +123,21 @@ func (o *outputRegion) render(buf *strings.Builder, t *Theme, w, height, startRo
 		lines = append(lines, renderMessage(m, t, lineW, o.userLabel, o.assistantLabel, o.systemLabel, o.hideHeaders)...)
 	}
 
-	o.lastLines = lines
+	// Only update lastLines/lastStart if there's no active selection.
+	// This freezes the selection target during drag operations on dynamic content.
+	if o.sel == nil {
+		o.lastLines = lines
+	}
 
 	total := len(lines)
-	maxOff := total - height
-	if maxOff < 0 {
-		maxOff = 0
-	}
-	if o.scrollOff > maxOff {
-		o.scrollOff = maxOff
-	}
+	maxOff := max(0, total-height)
+	o.scrollOff = min(o.scrollOff, maxOff)
 
-	start := total - height - o.scrollOff
-	if start < 0 {
-		start = 0
+	start := max(0, total-height-o.scrollOff)
+	if o.sel == nil {
+		o.lastStart = start
 	}
-	o.lastStart = start
-	end := start + height
-	if end > total {
-		end = total
-	}
+	end := min(total, start+height)
 
 	// Normalise selection so a0 <= a1.
 	var selA, selB selAnchor
@@ -155,25 +152,29 @@ func (o *outputRegion) render(buf *strings.Builder, t *Theme, w, height, startRo
 
 	for i := start; i < end; i++ {
 		row := i - start
-		buf.WriteString(cursorPos(startRow+row, 1))
+		buf.WriteString(cursorPos(startRow+row, startCol))
 		buf.WriteString(linkReset)
-		buf.WriteString(clearLine())
 		line := truncate(lines[i], lineW)
 		if hasSelection && i >= selA.row && i <= selB.row {
-			line = applyHighlight(line, selA, selB, i, lineW)
+			line = applyHighlight(line, selA, selB, i)
 		}
 		buf.WriteString(line)
+		// Pad with spaces to fill the width (don't use clearLine - it clears to end of terminal)
+		if pad := lineW - visibleLen(line); pad > 0 {
+			buf.WriteString(spaces[:pad])
+		}
 	}
 	for i := end - start; i < height; i++ {
-		buf.WriteString(cursorPos(startRow+i, 1))
+		buf.WriteString(cursorPos(startRow+i, startCol))
 		buf.WriteString(linkReset)
-		buf.WriteString(clearLine())
+		// Pad with spaces instead of clearing the line
+		buf.WriteString(spaces)
 	}
 }
 
 // applyHighlight wraps the selected column range of a rendered line with reverse video.
 // row, selA, selB are all indices into lastLines (0-based absolute).
-func applyHighlight(line string, selA, selB selAnchor, row, lineW int) string {
+func applyHighlight(line string, selA, selB selAnchor, row int) string {
 	plain := stripANSI(line)
 	runes := []rune(plain)
 	n := len(runes)
@@ -197,12 +198,12 @@ func applyHighlight(line string, selA, selB selAnchor, row, lineW int) string {
 	}
 
 	var b strings.Builder
+	b.Grow(n + 10)
 	b.WriteString(string(runes[:colStart]))
 	b.WriteString("\x1b[7m") // reverse video on
 	b.WriteString(string(runes[colStart:colEnd]))
 	b.WriteString("\x1b[27m") // reverse video off
 	b.WriteString(string(runes[colEnd:]))
-	_ = lineW
 	return b.String()
 }
 
@@ -302,10 +303,7 @@ func roleHeader(m *message, t *Theme, w int, userLabel, assistantLabel, systemLa
 		return ""
 	}
 	label = " " + label + " "
-	fill := w - utf8.RuneCountInString(label) - 4
-	if fill < 0 {
-		fill = 0
-	}
+	fill := max(0, w-utf8.RuneCountInString(label)-4)
 	var b strings.Builder
 	b.WriteString(fg(t.Dim))
 	b.WriteString("━━")
@@ -382,35 +380,43 @@ func wordWrap(s string, w int) []string {
 	}
 	tokens := splitTokens(s)
 	var lines []string
-	current := ""
+	var current strings.Builder
 	currentW := 0
 	for _, tok := range tokens {
 		if tok == " " {
-			if current != "" {
-				current += " "
+			if current.Len() > 0 {
+				current.WriteByte(' ')
 				currentW++
 			}
 			continue
 		}
 		tokW := visibleLen(tok)
-		if current == "" {
+		if current.Len() == 0 {
 			if tokW > w {
 				lines = append(lines, splitHardWrap(tok, w)...)
 				continue
 			}
-			current = tok
+			current.WriteString(tok)
 			currentW = tokW
 		} else if currentW+1+tokW <= w {
-			current += tok
+			current.WriteString(tok)
 			currentW += tokW
 		} else {
-			lines = append(lines, strings.TrimRight(current, " "))
-			current = tok
-			currentW = tokW
+			lines = append(lines, strings.TrimRight(current.String(), " "))
+			// Token doesn't fit on current line - check if it needs hard-wrapping
+			if tokW > w {
+				lines = append(lines, splitHardWrap(tok, w)...)
+				current.Reset()
+				currentW = 0
+			} else {
+				current.Reset()
+				current.WriteString(tok)
+				currentW = tokW
+			}
 		}
 	}
-	if current != "" {
-		lines = append(lines, strings.TrimRight(current, " "))
+	if current.Len() > 0 {
+		lines = append(lines, strings.TrimRight(current.String(), " "))
 	}
 	return lines
 }
@@ -520,7 +526,18 @@ func truncate(s string, n int) string {
 }
 
 func visibleLen(s string) int {
-	return utf8.RuneCountInString(stripANSI(s))
+	count := 0
+	i := 0
+	for i < len(s) {
+		if s[i] == '\x1b' {
+			i = scanEscape(s, i)
+			continue
+		}
+		_, size := utf8.DecodeRuneInString(s[i:])
+		i += size
+		count++
+	}
+	return count
 }
 
 func stripANSI(s string) string {
