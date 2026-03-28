@@ -36,8 +36,8 @@ func (t *TUI) draw() {
 	buf.WriteString(hideCursor())
 
 	// Check if we have a multi-panel layout
-	hasLeft := t.layout.Left != nil
-	hasRight := t.layout.Right != nil
+	hasLeft := t.leftRoot != nil
+	hasRight := t.rightRoot != nil
 	multiPanel := hasLeft || hasRight
 
 	if multiPanel {
@@ -148,22 +148,21 @@ type sidePanelResult struct {
 
 // processSidePanel calculates layout for a left or right panel.
 // Returns the panel layout, width consumed (including borders), and whether it's visible.
-func (t *TUI) processSidePanel(cfg *PanelConfig, remainingWidth, height int, currentFocusIdx *int) sidePanelResult {
-	w := t.calculatePanelWidth(cfg.Width, remainingWidth)
-	minW := cfg.MinWidth
+func (t *TUI) processSidePanel(p *Panel, remainingWidth, height int, currentFocusIdx *int) sidePanelResult {
+	w := t.calculatePanelWidth(p.layoutWidth, remainingWidth)
+	minW := p.minWidth
 	if minW == 0 {
 		minW = 2
 	}
 	if w < minW {
 		return sidePanelResult{}
 	}
-	p := t.getOrCreatePanel(cfg)
-	hasBorder := !cfg.NoBorder
+	hasBorder := !p.noBorder
 	pl := panelLayout{
-		name: cfg.Name, panel: p, width: w, height: height, hasBorder: hasBorder,
+		name: p.name, panel: p, width: w, height: height, hasBorder: hasBorder,
 	}
-	if cfg.Top != nil || cfg.Bottom != nil {
-		pl.children = t.buildChildPanels(cfg, w, height, currentFocusIdx)
+	if len(p.rows) > 0 {
+		pl.children = t.buildChildPanels(p, w, height, currentFocusIdx)
 	} else {
 		pl.focused = t.focusIdx == *currentFocusIdx
 		*currentFocusIdx++
@@ -183,8 +182,8 @@ func (t *TUI) drawPanels(buf *strings.Builder, height int) {
 	currentFocusIdx := 0 // Track position in focus cycle
 
 	// Left panel
-	if t.layout.Left != nil {
-		result := t.processSidePanel(t.layout.Left, remainingWidth, height, &currentFocusIdx)
+	if t.leftRoot != nil {
+		result := t.processSidePanel(t.leftRoot, remainingWidth, height, &currentFocusIdx)
 		if result.visible {
 			panels = append(panels, result.layout)
 			remainingWidth -= result.consumed
@@ -200,8 +199,8 @@ func (t *TUI) drawPanels(buf *strings.Builder, height int) {
 	currentFocusIdx++
 
 	// Right panel
-	if t.layout.Right != nil {
-		result := t.processSidePanel(t.layout.Right, remainingWidth, height, &currentFocusIdx)
+	if t.rightRoot != nil {
+		result := t.processSidePanel(t.rightRoot, remainingWidth, height, &currentFocusIdx)
 		if result.visible {
 			panels = append(panels, result.layout)
 			remainingWidth -= result.consumed
@@ -248,8 +247,8 @@ func (t *TUI) drawPanels(buf *strings.Builder, height int) {
 	}
 }
 
-// buildChildPanels creates child panel layouts for horizontal splits
-func (t *TUI) buildChildPanels(cfg *PanelConfig, width, totalHeight int, currentFocusIdx *int) []panelLayout {
+// buildChildPanels creates child panel layouts for vertical splits (rows).
+func (t *TUI) buildChildPanels(parent *Panel, width, totalHeight int, currentFocusIdx *int) []panelLayout {
 	var children []panelLayout
 
 	// Children use full height - no parent border to account for
@@ -258,61 +257,99 @@ func (t *TUI) buildChildPanels(cfg *PanelConfig, width, totalHeight int, current
 		availableHeight = 2
 	}
 
-	// Calculate heights for top and bottom
-	var topH, bottomH int
-	if cfg.Top != nil && cfg.Bottom != nil {
-		// Both specified - split based on Height config
-		if cfg.Top.Height < 0 {
-			// Percentage
-			topH = (availableHeight * (-cfg.Top.Height)) / 100
-		} else if cfg.Top.Height > 0 {
-			topH = cfg.Top.Height
-		} else {
-			topH = availableHeight / 2
-		}
-		// No gap between panels
-		bottomH = availableHeight - topH
-		if bottomH < 1 {
-			bottomH = 1
-			topH = availableHeight - 1
-		}
-	} else if cfg.Top != nil {
-		topH = availableHeight
-		bottomH = 0
-	} else if cfg.Bottom != nil {
-		topH = 0
-		bottomH = availableHeight
-	}
+	rowHeights := distributeRowHeights(parent, availableHeight)
 
-	// Build top child - each child has its own border
-	if cfg.Top != nil && topH > 0 {
-		p := t.getOrCreatePanel(cfg.Top)
+	for i, child := range parent.rows {
+		h := rowHeights[i]
+		if h < 1 {
+			continue
+		}
 		children = append(children, panelLayout{
-			name:      cfg.Top.Name,
-			panel:     p,
+			name:      child.name,
+			panel:     child,
 			width:     width,
-			height:    topH,
-			hasBorder: !cfg.Top.NoBorder, // Children have their own borders
-			focused:   t.focusIdx == *currentFocusIdx,
-		})
-		*currentFocusIdx++
-	}
-
-	// Build bottom child - each child has its own border
-	if cfg.Bottom != nil && bottomH > 0 {
-		p := t.getOrCreatePanel(cfg.Bottom)
-		children = append(children, panelLayout{
-			name:      cfg.Bottom.Name,
-			panel:     p,
-			width:     width,
-			height:    bottomH,
-			hasBorder: !cfg.Bottom.NoBorder, // Children have their own borders
+			height:    h,
+			hasBorder: !child.noBorder,
 			focused:   t.focusIdx == *currentFocusIdx,
 		})
 		*currentFocusIdx++
 	}
 
 	return children
+}
+
+// distributeRowHeights calculates the height for each row child of a parent panel.
+func distributeRowHeights(parent *Panel, availableHeight int) []int {
+	rows := parent.rows
+	if len(rows) == 0 {
+		return nil
+	}
+
+	heights := make([]int, len(rows))
+
+	// First pass: calculate requested heights
+	var totalRequested int
+	for i, child := range rows {
+		if child.layoutHeight < 0 {
+			heights[i] = (availableHeight * (-child.layoutHeight)) / 100
+		} else if child.layoutHeight > 0 {
+			heights[i] = child.layoutHeight
+		} else {
+			heights[i] = 0 // will be distributed
+		}
+		totalRequested += heights[i]
+	}
+
+	// Distribute remaining space to rows with no explicit height
+	remaining := availableHeight - totalRequested
+	zeroCount := 0
+	for _, h := range heights {
+		if h == 0 {
+			zeroCount++
+		}
+	}
+	if zeroCount > 0 && remaining > 0 {
+		perRow := remaining / zeroCount
+		for i, h := range heights {
+			if h == 0 {
+				heights[i] = perRow
+			}
+		}
+	}
+
+	// Clamp total to availableHeight
+	total := 0
+	for _, h := range heights {
+		total += h
+	}
+	if total > availableHeight {
+		// Scale down proportionally
+		for i, h := range heights {
+			heights[i] = h * availableHeight / total
+		}
+	}
+
+	// Ensure all heights are at least 1
+	for i, h := range heights {
+		if h < 1 {
+			heights[i] = 1
+		}
+	}
+
+	// Adjust last row to fill remaining space
+	total = 0
+	for i := 0; i < len(heights)-1; i++ {
+		total += heights[i]
+	}
+	if len(heights) > 0 {
+		last := availableHeight - total
+		if last < 1 {
+			last = 1
+		}
+		heights[len(heights)-1] = last
+	}
+
+	return heights
 }
 
 // drawChildPanels renders horizontally split child panels within a parent panel

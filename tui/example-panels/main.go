@@ -1,4 +1,4 @@
-// Example TUI with multiple panels — demonstrates the panel API.
+// Example TUI with multiple panels — demonstrates the builder panel API.
 //
 // Run with:
 //
@@ -45,44 +45,26 @@ func main() {
 
 	t = tui.New(cfg)
 
-	// Setup four-panel layout (logs, main, cpu stats, memory stats)
-	t.SetLayout(tui.LayoutConfig{
-		Left: &tui.PanelConfig{
-			Name:       "logs",
-			Width:      -25, // 25% of width
-			MinWidth:   15,  // Hide if narrower than 15 columns
-			Scrollable: true,
-			Title:      "Logs",
-		},
-		Right: &tui.PanelConfig{
-			// Split parent - Name not used since children are the actual panels
-			Width:    -30, // 30% of remaining width (after logs)
-			MinWidth: 16,  // Hide if narrower than 16 columns
-			Top: &tui.PanelConfig{
-				Name:       "stats-cpu",
-				Height:     -50, // 50% of panel height
-				Scrollable: false,
-				Title:      "CPU",
-			},
-			Bottom: &tui.PanelConfig{
-				Name:       "stats-mem",
-				Height:     -50, // 50% of panel height
-				Scrollable: false,
-				Title:      "Memory",
-			},
-		},
-	})
+	// Create panels using the builder API
+	logs := t.CreatePanel(tui.PanelConfig{Name: "logs", Width: -25, MinWidth: 15, Scrollable: true, Title: "Logs"})
+	right := t.CreatePanel(tui.PanelConfig{Width: -30, MinWidth: 16})
+	statsCpu := t.CreatePanel(tui.PanelConfig{Name: "stats-cpu", Height: -50, Title: "CPU"})
+	statsMem := t.CreatePanel(tui.PanelConfig{Name: "stats-mem", Height: -50, Title: "Memory"})
 
-	// Get panel references
-	logs := t.Panel("logs")
-	statsCpu := t.Panel("stats-cpu")
-	statsMem := t.Panel("stats-mem")
-	mainPanel := t.Panel("main")
+	// Build the right panel as a vertical split
+	right.AddRow(statsCpu)
+	right.AddRow(statsMem)
+
+	// Attach panels to layout
+	t.AddLeft(logs)
+	t.AddRight(right)
 
 	// Customize panels
 	logs.SetColor(tui.Color(0x7EC87A))     // green
 	statsCpu.SetColor(tui.Color(0x7BA7E8)) // blue
 	statsMem.SetColor(tui.Color(0xE87BA7)) // pink
+
+	mainPanel := t.Panel("main")
 
 	// Add slash commands
 	t.AddCommand(&tui.Command{
@@ -95,17 +77,10 @@ func main() {
 		Description: "Toggle panel layout",
 		Handler: func(_ string) {
 			if t.HasMultiplePanels() {
-				t.SetLayout(tui.LayoutConfig{})
+				t.ClearLayout()
 			} else {
-				t.SetLayout(tui.LayoutConfig{
-					Left: &tui.PanelConfig{Name: "logs", Width: -25, Scrollable: true, Title: "Logs"},
-					Right: &tui.PanelConfig{
-						// Split parent - children are the actual panels
-						Width: 22,
-						Top:   &tui.PanelConfig{Name: "stats-cpu", Height: -50, Title: "CPU"},
-						Bottom: &tui.PanelConfig{Name: "stats-mem", Height: -50, Title: "Memory"},
-					},
-				})
+				t.AddLeft(logs)
+				t.AddRight(right)
 			}
 		},
 	})
@@ -123,10 +98,10 @@ func main() {
 	// Add welcome message
 	mainPanel.AddMessage(tui.RoleSystem, "Welcome to the panels demo!")
 	mainPanel.AddMessage(tui.RoleAssistant, "This example shows a four-panel layout:\n\n"+
-		"• Left: Live log stream\n"+
-		"• Center: Chat (main panel)\n"+
-		"• Right top: CPU stats\n"+
-		"• Right bottom: Memory stats\n\n"+
+		"  Left: Live log stream\n"+
+		"  Center: Chat (main panel)\n"+
+		"  Right top: CPU stats\n"+
+		"  Right bottom: Memory stats\n\n"+
 		"Type a message and press Enter to chat.\n"+
 		"Press Tab to cycle focus between panels.\n"+
 		"Try /clear or /layout commands.")

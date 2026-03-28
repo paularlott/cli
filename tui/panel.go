@@ -13,23 +13,15 @@ const maxScrollOff = 1 << 30
 
 // PanelConfig configures a panel in the layout.
 type PanelConfig struct {
-	Name       string       // Panel identifier
-	Width      int          // Positive = columns, negative = percentage (e.g., -30 = 30%)
-	Height     int          // Positive = rows, negative = percentage (e.g., -50 = 50%). Used when panel is split vertically
-	MinWidth   int          // Minimum width to render; 0 = always show
-	Scrollable bool         // True = content scrolls, false = fixed viewport
-	Title      string       // Optional title for border; empty = no title
-	Color      *Color       // Optional border/accent color; nil = auto-assign
-	NoBorder   bool         // True = hide border for this panel
-	SkipFocus  bool         // True = exclude from Tab focus cycle
-	Top        *PanelConfig // Optional top child panel (horizontal split)
-	Bottom     *PanelConfig // Optional bottom child panel (horizontal split)
-}
-
-// LayoutConfig configures the panel layout.
-type LayoutConfig struct {
-	Left  *PanelConfig // nil = no left panel
-	Right *PanelConfig // nil = no right panel
+	Name       string // Panel identifier
+	Width      int    // Positive = columns, negative = percentage (e.g., -30 = 30%)
+	Height     int    // Positive = rows, negative = percentage (e.g., -50 = 50%). Used when panel is split vertically
+	MinWidth   int    // Minimum width to render; 0 = always show
+	Scrollable bool   // True = content scrolls, false = fixed viewport
+	Title      string // Optional title for border; empty = no title
+	Color      *Color // Optional border/accent color; nil = auto-assign
+	NoBorder   bool   // True = hide border for this panel
+	SkipFocus  bool   // True = exclude from Tab focus cycle
 }
 
 // Panel represents a content area within the TUI.
@@ -51,6 +43,15 @@ type Panel struct {
 	width  int
 	height int
 
+	// Layout dimensions (from PanelConfig)
+	layoutWidth  int // from PanelConfig.Width
+	layoutHeight int // from PanelConfig.Height
+	minWidth     int // from PanelConfig.MinWidth
+
+	// Layout tree: a panel can have rows (vertical split) or columns (horizontal split), but not both.
+	rows    []*Panel // vertical split (top to bottom)
+	columns []*Panel // horizontal split (left to right)
+
 	// Content
 	rawLines []string
 }
@@ -58,13 +59,16 @@ type Panel struct {
 // newPanel creates a new panel with the given configuration.
 func newPanel(cfg PanelConfig, t *TUI, color Color) *Panel {
 	p := &Panel{
-		name:       cfg.Name,
-		tui:        t,
-		title:      cfg.Title,
-		color:      color,
-		noBorder:   cfg.NoBorder,
-		scrollable: cfg.Scrollable,
-		skipFocus:  cfg.SkipFocus,
+		name:         cfg.Name,
+		tui:          t,
+		title:        cfg.Title,
+		color:        color,
+		noBorder:     cfg.NoBorder,
+		scrollable:   cfg.Scrollable,
+		skipFocus:    cfg.SkipFocus,
+		layoutWidth:  cfg.Width,
+		layoutHeight: cfg.Height,
+		minWidth:     cfg.MinWidth,
 		region: &outputRegion{
 			userLabel:      "You",
 			assistantLabel: "Assistant",
@@ -580,6 +584,24 @@ func (p *Panel) renderRawLocked(buf *strings.Builder, theme *Theme, width, heigh
 		buf.WriteString(cursorPos(startRow+i, startCol))
 		buf.WriteString(spaces)
 	}
+}
+
+// AddColumn appends a child panel as a horizontal column (left to right).
+// No-op if the panel already has rows.
+func (p *Panel) AddColumn(child *Panel) {
+	if len(p.rows) > 0 {
+		return
+	}
+	p.columns = append(p.columns, child)
+}
+
+// AddRow appends a child panel as a vertical row (top to bottom).
+// No-op if the panel already has columns.
+func (p *Panel) AddRow(child *Panel) {
+	if len(p.columns) > 0 {
+		return
+	}
+	p.rows = append(p.rows, child)
 }
 
 // Ensure Panel implements io.Writer

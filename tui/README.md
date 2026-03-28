@@ -21,7 +21,7 @@ The input box top border carries the spinner, progress bar, scroll hint, or `Sta
 
 ### Multi-Panel Layout
 
-The TUI supports horizontal panel splits for side-by-side content:
+The TUI supports multi-panel layouts using a two-step builder pattern: create panels, then add them to the layout.
 
 ```
 ┌─ logs ───┬─ main ──────────────────────┬─ stats ──┐
@@ -32,24 +32,53 @@ The TUI supports horizontal panel splits for side-by-side content:
 └──────────┴─────────────────────────────┴──────────┘
 ```
 
-Configure panels with `SetLayout`:
+Create panels and build the layout:
 
 ```go
-t.SetLayout(tui.LayoutConfig{
-    Left: &tui.PanelConfig{
-        Name:       "logs",
-        Width:      -25,       // 25% of terminal width (negative = percentage)
-        Scrollable: true,
-        Title:      "Logs",
-    },
-    Right: &tui.PanelConfig{
-        Name:       "stats",
-        Width:      20,        // 20 columns (positive = fixed)
-        Scrollable: false,     // Fixed content, overwrites on update
-        Title:      "Stats",
-        NoBorder:   false,     // Set true to hide border
-    },
+// Step 1: Create panels
+logs := t.CreatePanel(tui.PanelConfig{
+    Name:       "logs",
+    Width:      -25,       // 25% of terminal width (negative = percentage)
+    MinWidth:   15,        // Hide if narrower than 15 columns
+    Scrollable: true,
+    Title:      "Logs",
 })
+stats := t.CreatePanel(tui.PanelConfig{
+    Name:       "stats",
+    Width:      20,        // 20 columns (positive = fixed)
+    MinWidth:   10,        // Hide if narrower than 10 columns
+    Scrollable: false,     // Fixed content, overwrites on update
+    Title:      "Stats",
+    NoBorder:   false,     // Set true to hide border
+})
+
+// Step 2: Add panels to layout
+t.AddLeft(logs)
+t.AddRight(stats)
+```
+
+Panels can be nested with vertical splits using `AddRow`:
+
+```go
+right := t.CreatePanel(tui.PanelConfig{Width: -30, MinWidth: 16})
+statsCpu := t.CreatePanel(tui.PanelConfig{Name: "cpu", Height: -50, Title: "CPU"})
+statsMem := t.CreatePanel(tui.PanelConfig{Name: "mem", Height: -50, Title: "Memory"})
+
+right.AddRow(statsCpu)
+right.AddRow(statsMem)
+
+t.AddRight(right)
+```
+
+Clear and rebuild layouts at runtime:
+
+```go
+// Remove all panels from layout (panels keep their content)
+t.ClearLayout()
+
+// Re-attach panels
+t.AddLeft(logs)
+t.AddRight(right)
 ```
 
 Get a panel reference and write to it:

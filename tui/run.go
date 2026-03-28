@@ -126,9 +126,9 @@ func (t *TUI) panelAtPosition(screenCol, screenRow int) focusedPanelInfo {
 	}
 
 	// Helper to check visibility
-	isVisible := func(cfg *PanelConfig, availW int) (int, bool) {
-		w := t.calculatePanelWidth(cfg.Width, availW)
-		minW := cfg.MinWidth
+	isVisible := func(p *Panel, availW int) (int, bool) {
+		w := t.calculatePanelWidth(p.layoutWidth, availW)
+		minW := p.minWidth
 		if minW == 0 {
 			minW = 2
 		}
@@ -136,7 +136,7 @@ func (t *TUI) panelAtPosition(screenCol, screenRow int) focusedPanelInfo {
 	}
 
 	// Helper to compute content bounds for a panel
-	panelBounds := func(panel *Panel, px, py, _ int, h int, hasBorder bool) focusedPanelInfo {
+	panelBounds := func(panel *Panel, px, py, h int, hasBorder bool) focusedPanelInfo {
 		contentX := px
 		contentY := py
 		if hasBorder {
@@ -155,65 +155,39 @@ func (t *TUI) panelAtPosition(screenCol, screenRow int) focusedPanelInfo {
 		}
 	}
 
-	// Helper to compute child height (matches buildChildPanels logic)
-	childHeight := func(child *PanelConfig, availH int) int {
-		if child.Height < 0 {
-			return (availH * (-child.Height)) / 100
-		}
-		if child.Height > 0 {
-			return child.Height
-		}
-		return availH / 2
-	}
-
 	// Helper to check if a point is inside a content rect
 	contains := func(col, row, rx, ry, rw, rh int) bool {
 		return col >= rx && col < rx+rw && row >= ry && row < ry+rh
 	}
 
 	// Helper to check a panel (possibly split) and return info if hit
-	checkPanel := func(cfg *PanelConfig, px int, availW int) (focusedPanelInfo, int, bool) {
-		w, visible := isVisible(cfg, availW)
+	checkPanel := func(p *Panel, px int, availW int) (focusedPanelInfo, int, bool) {
+		w, visible := isVisible(p, availW)
 		if !visible {
 			return focusedPanelInfo{}, 0, false
 		}
-		hasBorder := !cfg.NoBorder
+		hasBorder := !p.noBorder
 		totalW := w
 		if hasBorder {
 			totalW += 2
 		}
 
-		if cfg.Top != nil || cfg.Bottom != nil {
+		if len(p.rows) > 0 {
 			y := 0
 			availH := outputH
-			if cfg.Top != nil {
-				topH := childHeight(cfg.Top, availH)
-				if p := t.panels[cfg.Top.Name]; p != nil {
-					b := panelBounds(p, px, y, w, topH, !cfg.Top.NoBorder)
-					if contains(screenCol, screenRow, b.xOffset, b.yOffset, w, b.height) {
-						return b, totalW, true
-					}
-				}
-				y += topH
-			}
-			if cfg.Bottom != nil {
-				bottomH := availH
-				if cfg.Top != nil {
-					bottomH = availH - childHeight(cfg.Top, availH)
-				}
-				if p := t.panels[cfg.Bottom.Name]; p != nil {
-					b := panelBounds(p, px, y, w, bottomH, !cfg.Bottom.NoBorder)
-					if contains(screenCol, screenRow, b.xOffset, b.yOffset, w, b.height) {
-						return b, totalW, true
-					}
-				}
-			}
-		} else {
-			if p := t.panels[cfg.Name]; p != nil {
-				b := panelBounds(p, px, 0, w, outputH, hasBorder)
+			rowHeights := distributeRowHeights(p, availH)
+			for i, child := range p.rows {
+				h := rowHeights[i]
+				b := panelBounds(child, px, y, h, !child.noBorder)
 				if contains(screenCol, screenRow, b.xOffset, b.yOffset, w, b.height) {
 					return b, totalW, true
 				}
+				y += h
+			}
+		} else {
+			b := panelBounds(p, px, 0, outputH, hasBorder)
+			if contains(screenCol, screenRow, b.xOffset, b.yOffset, w, b.height) {
+				return b, totalW, true
 			}
 		}
 		return focusedPanelInfo{}, totalW, false
@@ -227,12 +201,12 @@ func (t *TUI) panelAtPosition(screenCol, screenRow int) focusedPanelInfo {
 
 	// Step 1: Calculate left panel width
 	leftTotalW := 0
-	if t.layout.Left != nil {
-		cfg := t.layout.Left
-		w, visible := isVisible(cfg, remainingWidth)
+	if t.leftRoot != nil {
+		p := t.leftRoot
+		w, visible := isVisible(p, remainingWidth)
 		if visible {
 			leftTotalW = w
-			if !cfg.NoBorder {
+			if !p.noBorder {
 				leftTotalW += 2
 			}
 			remainingWidth -= leftTotalW
@@ -242,12 +216,12 @@ func (t *TUI) panelAtPosition(screenCol, screenRow int) focusedPanelInfo {
 	// Step 2: Calculate right panel width (from remainder after left, before main)
 	var rightTotalW int
 	rightVisible := false
-	if t.layout.Right != nil {
-		cfg := t.layout.Right
-		w, vis := isVisible(cfg, remainingWidth)
+	if t.rightRoot != nil {
+		p := t.rightRoot
+		w, vis := isVisible(p, remainingWidth)
 		if vis {
 			rightTotalW = w
-			if !cfg.NoBorder {
+			if !p.noBorder {
 				rightTotalW += 2
 			}
 			rightVisible = true
@@ -262,13 +236,13 @@ func (t *TUI) panelAtPosition(screenCol, screenRow int) focusedPanelInfo {
 		mainContentW = 2
 	}
 
-	// Now walk panels in display order (left → main → right), checking hits
+	// Now walk panels in display order (left -> main -> right), checking hits
 	x := 0
 
 	// Left panel hit test
-	if t.layout.Left != nil && leftTotalW > 0 {
-		cfg := t.layout.Left
-		if b, _, hit := checkPanel(cfg, x, t.width); hit {
+	if t.leftRoot != nil && leftTotalW > 0 {
+		p := t.leftRoot
+		if b, _, hit := checkPanel(p, x, t.width); hit {
 			return b
 		}
 		x += leftTotalW
@@ -289,11 +263,11 @@ func (t *TUI) panelAtPosition(screenCol, screenRow int) focusedPanelInfo {
 	}
 
 	// Right panel hit test
-	if t.layout.Right != nil && rightVisible {
-		cfg := t.layout.Right
+	if t.rightRoot != nil && rightVisible {
+		p := t.rightRoot
 		// Right panel's available width was remainingWidth after left (before main took its share)
 		rightAvailW := remainingWidth + rightTotalW // restore: this is what was available after left
-		if b, _, hit := checkPanel(cfg, x, rightAvailW); hit {
+		if b, _, hit := checkPanel(p, x, rightAvailW); hit {
 			return b
 		}
 	}

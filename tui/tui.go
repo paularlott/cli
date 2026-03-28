@@ -135,9 +135,10 @@ type TUI struct {
 	// Panel support
 	panels        map[string]*Panel
 	mainPanel     *Panel // Cached main panel for legacy methods
-	layout        LayoutConfig
-	focusIdx      int // Index of focused panel (0=left, 1=main, 2=right)
-	panelColorIdx int // For auto-assigning panel colors
+	leftRoot      *Panel // Root of left panel tree
+	rightRoot     *Panel // Root of right panel tree
+	focusIdx      int    // Index of focused panel (0=left, 1=main, 2=right)
+	panelColorIdx int    // For auto-assigning panel colors
 }
 
 // New creates a new TUI with the given configuration.
@@ -434,20 +435,13 @@ func (t *TUI) redraw() {
 	t.draw()
 }
 
-// Panel returns the panel with the given name, creating it if it doesn't exist.
+// Panel returns the panel with the given name.
 // The special name "main" returns the main panel.
+// Returns nil if no panel with that name exists.
 func (t *TUI) Panel(name string) *Panel {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-
-	if p, ok := t.panels[name]; ok {
-		return p
-	}
-
-	// Create new panel with auto-assigned color
-	p := t.createPanel(PanelConfig{Name: name})
-	t.panels[name] = p
-	return p
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	return t.panels[name]
 }
 
 // createPanel creates a new panel with auto-assigned color.
@@ -459,37 +453,45 @@ func (t *TUI) createPanel(cfg PanelConfig) *Panel {
 	return newPanel(cfg, t, color)
 }
 
-// getOrCreatePanel returns an existing panel by config name or creates one.
-// Must be called with t.mu held.
-func (t *TUI) getOrCreatePanel(cfg *PanelConfig) *Panel {
-	p := t.panels[cfg.Name]
-	if p == nil {
-		p = t.createPanel(*cfg)
+// CreatePanel creates a new panel without adding it to the layout.
+// The panel is stored in the TUI's panel map by name (if name is non-empty).
+// Use AddLeft or AddRight to attach it to the layout.
+func (t *TUI) CreatePanel(cfg PanelConfig) *Panel {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	p := t.createPanel(cfg)
+	if cfg.Name != "" {
 		t.panels[cfg.Name] = p
 	}
 	return p
 }
 
-// SetLayout configures the panel layout.
-func (t *TUI) SetLayout(cfg LayoutConfig) {
+// AddLeft attaches the given panel (and any children) to the left of the main panel.
+func (t *TUI) AddLeft(panel *Panel) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-
-	t.layout = cfg
-
-	// Create panels defined in layout (if not already created)
-	// Skip split parents - they're containers, not renderable panels
-	if cfg.Left != nil && cfg.Left.Top == nil && cfg.Left.Bottom == nil {
-		t.getOrCreatePanel(cfg.Left)
-	}
-
-	if cfg.Right != nil && cfg.Right.Top == nil && cfg.Right.Bottom == nil {
-		t.getOrCreatePanel(cfg.Right)
-	}
-
+	t.leftRoot = panel
 	// Set initial focus to main panel (after all left panels)
-	t.focusIdx = t.countPanelChildren(t.layout.Left)
+	t.focusIdx = t.countPanelChildren(t.leftRoot)
+	t.draw()
+}
 
+// AddRight attaches the given panel (and any children) to the right of the main panel.
+func (t *TUI) AddRight(panel *Panel) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.rightRoot = panel
+	t.draw()
+}
+
+// ClearLayout removes the layout tree but keeps all panels and their content.
+func (t *TUI) ClearLayout() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.leftRoot = nil
+	t.rightRoot = nil
+	t.focusIdx = 0
 	t.draw()
 }
 
@@ -527,35 +529,9 @@ func (t *TUI) FocusedPanel() *Panel {
 func (t *TUI) focusedPanelPtr() *Panel {
 	idx := 0
 
-	// Helper to check focus match and return panel
-	checkFocus := func(cfg *PanelConfig) *Panel {
-		if cfg.SkipFocus {
-			return nil
-		}
-		if t.focusIdx == idx {
-			return t.panels[cfg.Name]
-		}
-		idx++
-		return nil
-	}
-
-	// Check left panel and its children
-	if t.layout.Left != nil {
-		if t.layout.Left.Top != nil {
-			if p := checkFocus(t.layout.Left.Top); p != nil {
-				return p
-			}
-		}
-		if t.layout.Left.Bottom != nil {
-			if p := checkFocus(t.layout.Left.Bottom); p != nil {
-				return p
-			}
-		}
-		if t.layout.Left.Top == nil && t.layout.Left.Bottom == nil {
-			if p := checkFocus(t.layout.Left); p != nil {
-				return p
-			}
-		}
+	// Check left panel tree
+	if p := t.walkFocusTree(t.leftRoot, &idx); p != nil {
+		return p
 	}
 
 	// Main panel (always focusable)
@@ -564,27 +540,42 @@ func (t *TUI) focusedPanelPtr() *Panel {
 	}
 	idx++
 
-	// Check right panel and its children
-	if t.layout.Right != nil {
-		if t.layout.Right.Top != nil {
-			if p := checkFocus(t.layout.Right.Top); p != nil {
-				return p
-			}
-		}
-		if t.layout.Right.Bottom != nil {
-			if p := checkFocus(t.layout.Right.Bottom); p != nil {
-				return p
-			}
-		}
-		if t.layout.Right.Top == nil && t.layout.Right.Bottom == nil {
-			if p := checkFocus(t.layout.Right); p != nil {
-				return p
-			}
-		}
+	// Check right panel tree
+	if p := t.walkFocusTree(t.rightRoot, &idx); p != nil {
+		return p
 	}
 
 	// Default to main panel
 	return t.mainPanel
+}
+
+// walkFocusTree walks a panel tree looking for the focused leaf panel.
+// idx is updated as panels are visited. Must be called with t.mu held.
+func (t *TUI) walkFocusTree(root *Panel, idx *int) *Panel {
+	if root == nil {
+		return nil
+	}
+	children := root.rows
+	if len(children) == 0 {
+		children = root.columns
+	}
+	if len(children) > 0 {
+		for _, child := range children {
+			if p := t.walkFocusTree(child, idx); p != nil {
+				return p
+			}
+		}
+		return nil
+	}
+	// Leaf panel
+	if root.skipFocus {
+		return nil
+	}
+	if t.focusIdx == *idx {
+		return root
+	}
+	*idx++
+	return nil
 }
 
 // CycleFocus moves focus to the next panel.
@@ -601,32 +592,33 @@ func (t *TUI) CycleFocus() {
 func (t *TUI) countFocusablePanels() int {
 	count := 1 // main always focusable
 
-	if t.layout.Left != nil {
-		count += t.countPanelChildren(t.layout.Left)
+	if t.leftRoot != nil {
+		count += t.countPanelChildren(t.leftRoot)
 	}
-	if t.layout.Right != nil {
-		count += t.countPanelChildren(t.layout.Right)
+	if t.rightRoot != nil {
+		count += t.countPanelChildren(t.rightRoot)
 	}
 
 	return count
 }
 
 // countPanelChildren counts focusable panels (excluding SkipFocus ones).
-func (t *TUI) countPanelChildren(cfg *PanelConfig) int {
-	if cfg == nil {
+func (t *TUI) countPanelChildren(root *Panel) int {
+	if root == nil {
 		return 0
 	}
-	if cfg.Top != nil || cfg.Bottom != nil {
+	children := root.rows
+	if len(children) == 0 {
+		children = root.columns
+	}
+	if len(children) > 0 {
 		count := 0
-		if cfg.Top != nil && !cfg.Top.SkipFocus {
-			count++
-		}
-		if cfg.Bottom != nil && !cfg.Bottom.SkipFocus {
-			count++
+		for _, child := range children {
+			count += t.countPanelChildren(child)
 		}
 		return count
 	}
-	if cfg.SkipFocus {
+	if root.skipFocus {
 		return 0
 	}
 	return 1
@@ -648,7 +640,7 @@ func (t *TUI) cycleFocusLocked() func() {
 
 // hasMultiplePanels returns true if there's more than one visible panel.
 func (t *TUI) hasMultiplePanels() bool {
-	return t.layout.Left != nil || t.layout.Right != nil
+	return t.leftRoot != nil || t.rightRoot != nil
 }
 
 // HasMultiplePanels returns true if there's more than one visible panel.
