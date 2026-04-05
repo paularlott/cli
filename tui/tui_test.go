@@ -395,6 +395,13 @@ func TestVisibleLen(t *testing.T) {
 	}
 }
 
+func TestExpandTabs(t *testing.T) {
+	got := expandTabs("\t\"context\"\t\"fmt\"", 4)
+	if got != "    \"context\"   \"fmt\"" {
+		t.Fatalf("expandTabs: got %q", got)
+	}
+}
+
 func TestTruncate(t *testing.T) {
 	s := "hello world"
 	got := truncate(s, 5)
@@ -412,6 +419,18 @@ func TestRenderCodeBlock(t *testing.T) {
 	lines := renderCodeBlock("x := 1\n", ThemeAmber, 40)
 	if len(lines) < 3 {
 		t.Errorf("expected at least 3 lines, got %d", len(lines))
+	}
+}
+
+func TestRenderCodeBlockExpandsTabs(t *testing.T) {
+	lines := renderCodeBlock("\t\"context\"\n", ThemeAmber, 24)
+	joined := strings.Join(lines, "\n")
+	plain := stripANSI(joined)
+	if strings.Contains(plain, "\t") {
+		t.Fatalf("renderCodeBlock should not contain tabs: %q", plain)
+	}
+	if !strings.Contains(plain, "    \"context\"") {
+		t.Fatalf("renderCodeBlock should expand tabs, got %q", plain)
 	}
 }
 

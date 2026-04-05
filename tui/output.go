@@ -5,6 +5,8 @@ import (
 	"unicode/utf8"
 )
 
+const tabWidth = 4
+
 // selAnchor is a point in the rendered line grid (0-based).
 type selAnchor struct {
 	row, col int
@@ -354,6 +356,7 @@ func renderText(text string, t *Theme, role MessageRole, w int) []string {
 		c = fg(t.Dim)
 	}
 	for _, line := range strings.Split(strings.TrimRight(text, "\n"), "\n") {
+		line = expandTabs(line, tabWidth)
 		for _, wrapped := range wordWrap(line, w) {
 			var b strings.Builder
 			b.WriteString(c)
@@ -515,6 +518,7 @@ func renderCodeBlock(code string, t *Theme, w int) []string {
 	border := bg(t.CodeBG) + strings.Repeat(" ", w) + reset
 	lines = append(lines, border)
 	for _, line := range strings.Split(strings.TrimRight(code, "\n"), "\n") {
+		line = expandTabs(line, tabWidth)
 		var b strings.Builder
 		b.WriteString(bg(t.CodeBG))
 		b.WriteString(fg(t.CodeText))
@@ -529,6 +533,42 @@ func renderCodeBlock(code string, t *Theme, w int) []string {
 	}
 	lines = append(lines, border)
 	return lines
+}
+
+func expandTabs(s string, width int) string {
+	if width <= 0 || !strings.ContainsRune(s, '\t') {
+		return s
+	}
+
+	var b strings.Builder
+	col := 0
+	i := 0
+	for i < len(s) {
+		if s[i] == '\x1b' {
+			end := scanEscape(s, i)
+			b.WriteString(s[i:end])
+			i = end
+			continue
+		}
+
+		r, size := utf8.DecodeRuneInString(s[i:])
+		if r == '\t' {
+			spaces := width - (col % width)
+			if spaces == 0 {
+				spaces = width
+			}
+			b.WriteString(strings.Repeat(" ", spaces))
+			col += spaces
+			i += size
+			continue
+		}
+
+		b.WriteRune(r)
+		col++
+		i += size
+	}
+
+	return b.String()
 }
 
 // truncate trims s to at most n visible runes, preserving escape sequences.
