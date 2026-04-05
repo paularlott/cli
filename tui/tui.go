@@ -84,6 +84,12 @@ type Config struct {
 	// SystemLabel is the label shown for system messages. Defaults to "System".
 	SystemLabel string
 
+	// ThinkingLabel is the label shown for thinking messages. Defaults to "Thinking".
+	ThinkingLabel string
+
+	// ToolLabel is the label shown for tool messages. Defaults to "Tool".
+	ToolLabel string
+
 	// HideHeaders suppresses the role header line between messages.
 	HideHeaders bool
 
@@ -146,6 +152,21 @@ func New(cfg Config) *TUI {
 	if cfg.Theme == nil {
 		cfg.Theme = ThemeDefault
 	}
+	if cfg.UserLabel == "" {
+		cfg.UserLabel = "You"
+	}
+	if cfg.AssistantLabel == "" {
+		cfg.AssistantLabel = "Assistant"
+	}
+	if cfg.SystemLabel == "" {
+		cfg.SystemLabel = "System"
+	}
+	if cfg.ThinkingLabel == "" {
+		cfg.ThinkingLabel = "Thinking"
+	}
+	if cfg.ToolLabel == "" {
+		cfg.ToolLabel = "Tool"
+	}
 
 	for _, th := range cfg.Themes {
 		RegisterTheme(th)
@@ -160,6 +181,8 @@ func New(cfg Config) *TUI {
 			userLabel:      cfg.UserLabel,
 			assistantLabel: cfg.AssistantLabel,
 			systemLabel:    cfg.SystemLabel,
+			thinkingLabel:  cfg.ThinkingLabel,
+			toolLabel:      cfg.ToolLabel,
 			hideHeaders:    cfg.HideHeaders,
 		},
 		input: newInputArea(),
@@ -243,6 +266,11 @@ func (t *TUI) StartStreamingAs(label string) {
 	t.mainPanel.StartStreamingAs(label)
 }
 
+// StartStreamingWithRole begins a new streaming assistant/system/thinking/tool message with a custom label.
+func (t *TUI) StartStreamingWithRole(role MessageRole, label string) {
+	t.mainPanel.StartStreamingWithRole(role, label)
+}
+
 // StreamChunk appends a chunk to the current streaming message.
 func (t *TUI) StreamChunk(chunk string) {
 	t.mainPanel.StreamChunk(chunk)
@@ -277,6 +305,14 @@ func (t *TUI) SetLabels(user, assistant, system string) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.output.SetLabels(user, assistant, system)
+	t.draw()
+}
+
+// SetAuxLabels updates the default labels for thinking and tool messages.
+func (t *TUI) SetAuxLabels(thinking, tool string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.output.SetAuxLabels(thinking, tool)
 	t.draw()
 }
 

@@ -18,6 +18,7 @@ const (
 	RoleUser
 	RoleSystem
 	RoleThinking
+	RoleTool
 )
 
 type message struct {
@@ -33,6 +34,8 @@ type outputRegion struct {
 	userLabel      string
 	assistantLabel string
 	systemLabel    string
+	thinkingLabel  string
+	toolLabel      string
 	hideHeaders    bool
 	// selection
 	sel       *[2]selAnchor // nil = no selection; [0]=anchor [1]=current
@@ -58,6 +61,11 @@ func (o *outputRegion) StartStreaming() {
 // StartStreamingAs begins a new assistant message with a custom label.
 func (o *outputRegion) StartStreamingAs(label string) {
 	o.streaming = &message{role: RoleAssistant, label: label}
+}
+
+// StartStreamingAsRole begins a new message with a custom role and label.
+func (o *outputRegion) StartStreamingAsRole(role MessageRole, label string) {
+	o.streaming = &message{role: role, label: label}
 }
 
 // StreamChunk appends a chunk to the in-progress streaming message.
@@ -99,6 +107,16 @@ func (o *outputRegion) SetLabels(user, assistant, system string) {
 	}
 }
 
+// SetAuxLabels updates the default labels for non-chat assistant roles.
+func (o *outputRegion) SetAuxLabels(thinking, tool string) {
+	if thinking != "" {
+		o.thinkingLabel = thinking
+	}
+	if tool != "" {
+		o.toolLabel = tool
+	}
+}
+
 func (o *outputRegion) scrollUp(n int)   { o.scrollOff += n }
 func (o *outputRegion) scrollDown(n int) { o.scrollOff = max(0, o.scrollOff-n) }
 
@@ -121,7 +139,7 @@ func (o *outputRegion) renderAt(buf *strings.Builder, t *Theme, w, height, start
 
 	var lines []string
 	for _, m := range all {
-		lines = append(lines, renderMessage(m, t, lineW, o.userLabel, o.assistantLabel, o.systemLabel, o.hideHeaders)...)
+		lines = append(lines, renderMessage(m, t, lineW, o.userLabel, o.assistantLabel, o.systemLabel, o.thinkingLabel, o.toolLabel, o.hideHeaders)...)
 	}
 
 	// Only update lastLines/lastStart if there's no active selection.
@@ -244,11 +262,11 @@ func (o *outputRegion) selectionText() string {
 }
 
 // renderMessage converts a message to a slice of pre-rendered lines.
-func renderMessage(m *message, t *Theme, w int, userLabel, assistantLabel, systemLabel string, hideHeaders bool) []string {
+func renderMessage(m *message, t *Theme, w int, userLabel, assistantLabel, systemLabel, thinkingLabel, toolLabel string, hideHeaders bool) []string {
 	var lines []string
 
 	if !hideHeaders {
-		header := roleHeader(m, t, w, userLabel, assistantLabel, systemLabel)
+		header := roleHeader(m, t, w, userLabel, assistantLabel, systemLabel, thinkingLabel, toolLabel)
 		if header != "" {
 			lines = append(lines, "")
 			lines = append(lines, header)
@@ -286,8 +304,9 @@ func renderMessage(m *message, t *Theme, w int, userLabel, assistantLabel, syste
 	return lines
 }
 
-func roleHeader(m *message, t *Theme, w int, userLabel, assistantLabel, systemLabel string) string {
+func roleHeader(m *message, t *Theme, w int, userLabel, assistantLabel, systemLabel, thinkingLabel, toolLabel string) string {
 	var label string
+	labelColor := t.Primary
 	if m.label != "" {
 		label = m.label
 	} else {
@@ -296,6 +315,10 @@ func roleHeader(m *message, t *Theme, w int, userLabel, assistantLabel, systemLa
 			label = assistantLabel
 		case RoleUser:
 			label = userLabel
+		case RoleThinking:
+			label = thinkingLabel
+		case RoleTool:
+			label = toolLabel
 		default:
 			label = systemLabel
 		}
@@ -303,13 +326,16 @@ func roleHeader(m *message, t *Theme, w int, userLabel, assistantLabel, systemLa
 	if label == "" {
 		return ""
 	}
+	if m.role == RoleThinking || m.role == RoleTool {
+		labelColor = t.Dim
+	}
 	label = " " + label + " "
 	fill := max(0, w-utf8.RuneCountInString(label)-4)
 	var b strings.Builder
 	b.WriteString(fg(t.Dim))
 	b.WriteString("━━")
 	b.WriteString(reset)
-	b.WriteString(fg(t.Primary))
+	b.WriteString(fg(labelColor))
 	b.WriteString(bold())
 	b.WriteString(label)
 	b.WriteString(reset)
@@ -324,7 +350,7 @@ func renderText(text string, t *Theme, role MessageRole, w int) []string {
 	c := fg(t.Text)
 	if role == RoleUser {
 		c = fg(t.UserText)
-	} else if role == RoleThinking {
+	} else if role == RoleThinking || role == RoleTool {
 		c = fg(t.Dim)
 	}
 	for _, line := range strings.Split(strings.TrimRight(text, "\n"), "\n") {

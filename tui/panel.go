@@ -73,6 +73,8 @@ func newPanel(cfg PanelConfig, t *TUI, color Color) *Panel {
 			userLabel:      "You",
 			assistantLabel: "Assistant",
 			systemLabel:    "System",
+			thinkingLabel:  "Thinking",
+			toolLabel:      "Tool",
 		},
 	}
 	if cfg.Color != nil {
@@ -148,6 +150,16 @@ func (p *Panel) StartStreaming() {
 func (p *Panel) StartStreamingAs(label string) {
 	p.mu.Lock()
 	p.region.StartStreamingAs(label)
+	p.mu.Unlock()
+	if p.tui != nil {
+		p.tui.redraw()
+	}
+}
+
+// StartStreamingWithRole begins a new streaming message with a custom role and label.
+func (p *Panel) StartStreamingWithRole(role MessageRole, label string) {
+	p.mu.Lock()
+	p.region.StartStreamingAsRole(role, label)
 	p.mu.Unlock()
 	if p.tui != nil {
 		p.tui.redraw()

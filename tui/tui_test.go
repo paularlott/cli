@@ -417,7 +417,7 @@ func TestRenderCodeBlock(t *testing.T) {
 
 func TestRenderMessage(t *testing.T) {
 	m := &message{role: RoleAssistant, content: "hello\n\n```go\nfmt.Println()\n```\n"}
-	lines := renderMessage(m, ThemeAmber, 80, "You", "Assistant", "System", false)
+	lines := renderMessage(m, ThemeAmber, 80, "You", "Assistant", "System", "Thinking", "Tool", false)
 	joined := strings.Join(lines, "\n")
 	if !strings.Contains(stripANSI(joined), "hello") {
 		t.Error("rendered message missing content")
