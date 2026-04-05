@@ -17,6 +17,7 @@ const (
 	RoleAssistant MessageRole = iota
 	RoleUser
 	RoleSystem
+	RoleThinking
 )
 
 type message struct {
@@ -323,6 +324,8 @@ func renderText(text string, t *Theme, role MessageRole, w int) []string {
 	c := fg(t.Text)
 	if role == RoleUser {
 		c = fg(t.UserText)
+	} else if role == RoleThinking {
+		c = fg(t.Dim)
 	}
 	for _, line := range strings.Split(strings.TrimRight(text, "\n"), "\n") {
 		for _, wrapped := range wordWrap(line, w) {
