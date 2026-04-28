@@ -75,6 +75,9 @@ type Config struct {
 	// OnEscape is called when Escape is pressed and the palette is not active.
 	OnEscape func()
 
+	// OnInterrupt is called when Ctrl+C is pressed. If nil, the TUI exits.
+	OnInterrupt func()
+
 	// UserLabel is the label shown for user messages. Defaults to "You".
 	UserLabel string
 

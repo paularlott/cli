@@ -515,8 +515,12 @@ func (t *TUI) calculatePanelWidth(configWidth, available int) int {
 }
 
 func (t *TUI) handleInput(b []byte) func() {
-	// Ctrl+C — quit (no selection mode in this build).
+	// Ctrl+C — call OnInterrupt if set, otherwise quit.
 	if len(b) == 1 && b[0] == 3 {
+		if t.cfg.OnInterrupt != nil {
+			cb := t.cfg.OnInterrupt
+			return func() { cb() }
+		}
 		t.quit = true
 		return nil
 	}
