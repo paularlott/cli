@@ -310,11 +310,15 @@ func (c *Command) matchSubcommands(args []string) ([]string, *Command, []*Comman
 						}
 					}
 
-					// Copy the config file down
-					subcmd.ConfigFile = c.ConfigFile
+				// Copy the config file down
+				subcmd.ConfigFile = c.ConfigFile
 
-					current = subcmd
-					commandSequence = append(commandSequence, subcmd)
+				current = subcmd
+				// Make the accumulated global flags visible to collectFlag during
+				// the rest of the walk, so a value for a global flag defined on an
+				// intermediate parent is consumed (not orphaned).
+				current.globalFlags = globalFlags
+				commandSequence = append(commandSequence, subcmd)
 					found = true
 					break
 				}

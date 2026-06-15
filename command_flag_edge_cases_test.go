@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"os"
+	"reflect"
 	"testing"
 )
 
@@ -185,6 +186,57 @@ func TestFlagPositioning_GlobalFlagAfterSubcommand(t *testing.T) {
 	// Test: cmd sub --global value a c
 	os.Args = []string{"cmd", "sub", "--global", "value", "a", "c"}
 	err := parentCmd.Execute(context.Background())
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if !executed {
+		t.Fatal("expected command to be executed")
+	}
+}
+
+// TestFlagPositioning_GlobalFlagOnIntermediateParentAfterSubcommand tests a
+// global flag defined on an INTERMEDIATE parent (not root) used after a deeper
+// subcommand, e.g. `root mid leaf --global value arg`. Previously the value was
+// not consumed because collectFlag couldn't see the intermediate parent's flag
+// during the subcommand walk.
+func TestFlagPositioning_GlobalFlagOnIntermediateParentAfterSubcommand(t *testing.T) {
+	var globalValue string
+	var executed bool
+
+	midCmd := &Command{
+		Name: "mid",
+		Flags: []Flag{
+			&StringFlag{
+				Name:     "global",
+				Global:   true,
+				AssignTo: &globalValue,
+			},
+		},
+	}
+	leafCmd := &Command{
+		Name:    "leaf",
+		MaxArgs: UnlimitedArgs,
+		Run: func(ctx context.Context, cmd *Command) error {
+			executed = true
+			if globalValue != "value" {
+				t.Errorf("expected global to be 'value', got '%s'", globalValue)
+			}
+			args := cmd.GetArgs()
+			if len(args) != 1 || args[0] != "arg" {
+				t.Errorf("expected args [arg], got %v", args)
+			}
+			return nil
+		},
+	}
+	midCmd.Commands = []*Command{leafCmd}
+	rootCmd := &Command{
+		Name:     "root",
+		Commands: []*Command{midCmd},
+	}
+
+	// root mid leaf --global value arg
+	os.Args = []string{"root", "mid", "leaf", "--global", "value", "arg"}
+	err := rootCmd.Execute(context.Background())
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)
 	}
@@ -822,5 +874,76 @@ func TestFlagPositioning_EmptyArguments(t *testing.T) {
 	}
 	if !executed {
 		t.Fatal("expected command to be executed")
+	}
+}
+
+// TestIntermediateGlobalFlag_Stress tries hard to break the incremental-global-flags
+// fix for a global flag defined on an intermediate parent (root -> mid -> leaf),
+// covering value/=/short/bool forms, duplicate flags, value-looking-like-subcommand,
+// '=' in values, and the exact knot CLI arg shape.
+func TestIntermediateGlobalFlag_Stress(t *testing.T) {
+	tests := []struct {
+		name      string
+		args      []string
+		wantGlobal string
+		wantToken  string
+		wantBool   bool
+		wantArgs   []string
+	}{
+		{"value form after subcommand", []string{"root", "mid", "leaf", "--global", "gv", "a", "b"}, "gv", "", false, []string{"a", "b"}},
+		{"= form after subcommand", []string{"root", "mid", "leaf", "--global=gv", "a"}, "gv", "", false, []string{"a"}},
+		{"before subcommand", []string{"root", "mid", "--global", "gv", "leaf", "a"}, "gv", "", false, []string{"a"}},
+		{"bool global after subcommand", []string{"root", "mid", "leaf", "--bool", "a"}, "", "", true, []string{"a"}},
+		{"short alias after subcommand", []string{"root", "mid", "leaf", "-g", "gv", "a"}, "gv", "", false, []string{"a"}},
+		{"duplicate last wins", []string{"root", "mid", "leaf", "--global", "v1", "--global", "v2", "a"}, "v2", "", false, []string{"a"}},
+		{"value looks like subcommand name", []string{"root", "mid", "leaf", "--global", "leaf", "a"}, "leaf", "", false, []string{"a"}},
+		{"= in value (token style)", []string{"root", "mid", "leaf", "--token", "abc=def=", "a"}, "", "abc=def=", false, []string{"a"}},
+		{"inline = with = in value", []string{"root", "mid", "leaf", "--token=abc=def=", "a"}, "", "abc=def=", false, []string{"a"}},
+		{"knot-like shape: two strings + bool + positional", []string{"root", "mid", "leaf", "--global", "GV", "--token", "TK", "--bool", "spacename"}, "GV", "TK", true, []string{"spacename"}},
+		{"knot-like = shape", []string{"root", "mid", "leaf", "--global=GV", "--token=TK", "--bool=true", "spacename"}, "GV", "TK", true, []string{"spacename"}},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var executed bool
+			leaf := &Command{
+				Name:    "leaf",
+				MaxArgs: UnlimitedArgs,
+				Run: func(ctx context.Context, cmd *Command) error {
+					executed = true
+					if got := cmd.GetString("global"); got != tc.wantGlobal {
+						t.Errorf("global: got %q want %q", got, tc.wantGlobal)
+					}
+					if got := cmd.GetString("token"); got != tc.wantToken {
+						t.Errorf("token: got %q want %q", got, tc.wantToken)
+					}
+					if got := cmd.GetBool("bool"); got != tc.wantBool {
+						t.Errorf("bool: got %v want %v", got, tc.wantBool)
+					}
+					if args := cmd.GetArgs(); !reflect.DeepEqual(args, tc.wantArgs) {
+						t.Errorf("args: got %v want %v", args, tc.wantArgs)
+					}
+					return nil
+				},
+			}
+			mid := &Command{
+				Name: "mid",
+				Flags: []Flag{
+					&StringFlag{Name: "global", Aliases: []string{"g"}, Global: true},
+					&StringFlag{Name: "token", Global: true},
+					&BoolFlag{Name: "bool", Global: true},
+				},
+				Commands: []*Command{leaf},
+			}
+			root := &Command{Name: "root", Commands: []*Command{mid}}
+
+			os.Args = tc.args
+			if err := root.Execute(context.Background()); err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if !executed {
+				t.Fatal("leaf was not executed")
+			}
+		})
 	}
 }
