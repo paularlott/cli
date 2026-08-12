@@ -11,15 +11,26 @@ type commandItem struct {
 	cmd *Command
 }
 
-func (c commandItem) GetID() int    { return 0 } // ID not needed for command suggestions
+func (c commandItem) GetID() int      { return 0 }
 func (c commandItem) GetName() string { return c.cmd.Name }
+
+// commandAliasItem wraps a command alias to implement fuzzy.NamedItem
+type commandAliasItem struct {
+	name string
+}
+
+func (c commandAliasItem) GetID() int      { return 0 }
+func (c commandAliasItem) GetName() string { return c.name }
 
 // findSimilarCommands finds commands that are similar to the given command name
 func (c *Command) findSimilarCommands(cmdName string, commands []*Command, maxDistance int) []string {
-	// Convert commands to fuzzy items
-	items := make([]fuzzy.NamedItem, len(commands))
-	for i, cmd := range commands {
-		items[i] = commandItem{cmd: cmd}
+	// Convert commands and their aliases to fuzzy items
+	var items []fuzzy.NamedItem
+	for _, cmd := range commands {
+		items = append(items, commandItem{cmd: cmd})
+		for _, alias := range cmd.Aliases {
+			items = append(items, commandAliasItem{name: alias})
+		}
 	}
 
 	// Use fuzzy search with threshold based on maxDistance

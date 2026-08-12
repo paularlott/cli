@@ -61,6 +61,34 @@ If present `PostRun` actions are executed after the `Run` function. The `PostRun
 
 The command object passed to the `PostRun` function is the same as the one passed to the `Run` function.
 
+## Command Aliases
+
+Commands can have one or more aliases, allowing users to invoke them by shorter or alternative names. Aliases are defined using the `Aliases` field on the `Command` struct.
+
+```go
+{
+  Name:    "copy",
+  Aliases: []string{"cp"},
+  Usage:   "Copy files",
+  Run: func(ctx context.Context, cmd *cli.Command) error {
+    fmt.Println("Copying...")
+    return nil
+  },
+}
+```
+
+With this definition, both `myapp copy` and `myapp cp` will execute the same command. Aliases are shown alongside the command name in help output, included in shell completions, and considered when generating command suggestions for typos.
+
+Multiple aliases are supported:
+
+```go
+{
+  Name:    "remove",
+  Aliases: []string{"rm", "del", "delete"},
+  Usage:   "Remove items",
+}
+```
+
 ## Command Suggestions
 
 Command suggestions are disabled by default but can be enabled by setting `Suggestions: true` on the root command. Once enabled a typo in a command name will generate suggestions for similar commands.

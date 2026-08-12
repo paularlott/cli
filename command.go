@@ -16,6 +16,7 @@ const (
 
 type Command struct {
 	Name           string                                                           // Name of the command, e.g. "server", "config", etc.
+	Aliases        []string                                                         // Aliases for the command, e.g. "ls" for "list", "cp" for "copy"
 	Version        string                                                           // Version of the command, e.g. "1.0.0"
 	Usage          string                                                           // Short description of the command, e.g. "Start the server", "Show config", etc.
 	Description    string                                                           // Longer description of the command, e.g. "This command starts the server with the given configuration", "This command shows the current configuration", etc.
@@ -302,7 +303,7 @@ func (c *Command) matchSubcommands(args []string) ([]string, *Command, []*Comman
 			// Check if it's a subcommand
 			found := false
 			for _, subcmd := range current.Commands {
-				if arg == subcmd.Name {
+				if arg == subcmd.Name || matchesAlias(arg, subcmd.Aliases) {
 					// Save the global flags from the parent command
 					for _, flag := range current.Flags {
 						if flag.isGlobal() {
@@ -310,15 +311,15 @@ func (c *Command) matchSubcommands(args []string) ([]string, *Command, []*Comman
 						}
 					}
 
-				// Copy the config file down
-				subcmd.ConfigFile = c.ConfigFile
+					// Copy the config file down
+					subcmd.ConfigFile = c.ConfigFile
 
-				current = subcmd
-				// Make the accumulated global flags visible to collectFlag during
-				// the rest of the walk, so a value for a global flag defined on an
-				// intermediate parent is consumed (not orphaned).
-				current.globalFlags = globalFlags
-				commandSequence = append(commandSequence, subcmd)
+					current = subcmd
+					// Make the accumulated global flags visible to collectFlag during
+					// the rest of the walk, so a value for a global flag defined on an
+					// intermediate parent is consumed (not orphaned).
+					current.globalFlags = globalFlags
+					commandSequence = append(commandSequence, subcmd)
 					found = true
 					break
 				}
@@ -463,4 +464,14 @@ func (c *Command) GetRootCmd() *Command {
 		return c.commandChain[0]
 	}
 	return c
+}
+
+// matchesAlias checks if a string matches any of the given aliases.
+func matchesAlias(name string, aliases []string) bool {
+	for _, alias := range aliases {
+		if name == alias {
+			return true
+		}
+	}
+	return false
 }

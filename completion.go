@@ -102,7 +102,7 @@ func handleCommandCompletion(cmd *Command, shell string) {
 
 		found := false
 		for _, subCmd := range current.Commands {
-			if subCmd.Name == part {
+			if subCmd.Name == part || matchesAlias(part, subCmd.Aliases) {
 				current = subCmd
 				found = true
 				break
@@ -124,6 +124,14 @@ func handleCommandCompletion(cmd *Command, shell string) {
 			} else {
 				fmt.Println(subCmd.Name)
 			}
+			// Also output aliases
+			for _, alias := range subCmd.Aliases {
+				if subCmd.Usage != "" {
+					fmt.Printf("%s\t%s\n", alias, subCmd.Usage)
+				} else {
+					fmt.Println(alias)
+				}
+			}
 
 		case "powershell":
 			// Powershell uses value:description format
@@ -132,10 +140,21 @@ func handleCommandCompletion(cmd *Command, shell string) {
 			} else {
 				fmt.Println(subCmd.Name)
 			}
+			// Also output aliases
+			for _, alias := range subCmd.Aliases {
+				if subCmd.Usage != "" {
+					fmt.Printf("%s:%s\n", alias, subCmd.Usage)
+				} else {
+					fmt.Println(alias)
+				}
+			}
 
 		default:
 			// Just need command names
 			fmt.Println(subCmd.Name)
+			for _, alias := range subCmd.Aliases {
+				fmt.Println(alias)
+			}
 		}
 	}
 }
@@ -167,7 +186,7 @@ func handleArgCompletion(cmd *Command, shell string) {
 		}
 		found := false
 		for _, subCmd := range current.Commands {
-			if subCmd.Name == part {
+			if subCmd.Name == part || matchesAlias(part, subCmd.Aliases) {
 				current = subCmd
 				found = true
 				break
@@ -247,7 +266,7 @@ func handleFlagCompletion(cmd *Command, shell string) {
 
 		found := false
 		for _, subCmd := range current.Commands {
-			if subCmd.Name == part {
+			if subCmd.Name == part || matchesAlias(part, subCmd.Aliases) {
 				current = subCmd
 				found = true
 				break
@@ -350,7 +369,7 @@ func handleValueFlagsCompletion(cmd *Command) {
 		}
 		found := false
 		for _, subCmd := range current.Commands {
-			if subCmd.Name == part {
+			if subCmd.Name == part || matchesAlias(part, subCmd.Aliases) {
 				current = subCmd
 				found = true
 				break

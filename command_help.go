@@ -75,7 +75,11 @@ func (c *Command) ShowHelp() {
 	if len(c.Commands) > 0 {
 		fmt.Println("Available Commands:")
 		for _, cmd := range c.Commands {
-			fmt.Printf("   %-15s %s\n", cmd.Name, cmd.Usage)
+			name := cmd.Name
+			if len(cmd.Aliases) > 0 {
+				name += ", " + strings.Join(cmd.Aliases, ", ")
+			}
+			fmt.Printf("   %-15s %s\n", name, cmd.Usage)
 		}
 		fmt.Println()
 	}
