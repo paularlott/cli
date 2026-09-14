@@ -413,3 +413,99 @@ func TestBundledShortFlags(t *testing.T) {
 		t.Fatalf("expected no error, got %v", err)
 	}
 }
+
+// An env var that is set but empty must behave like an unset one for slice
+// flags: no entries, not a one-element [""] list.
+func TestStringSliceFlagEmptyEnvVar(t *testing.T) {
+	var got []string
+	cmd := &Command{
+		Name: "slice-empty-env",
+		Flags: []Flag{
+			&StringSliceFlag{
+				Name:         "items",
+				EnvVars:      []string{"TEST_SLICE_EMPTY_ENV"},
+				DefaultValue: []string{"a", "b"},
+			},
+		},
+		Run: func(ctx context.Context, c *Command) error {
+			got = c.GetStringSlice("items")
+			return nil
+		},
+	}
+
+	t.Setenv("TEST_SLICE_EMPTY_ENV", "")
+	os.Args = []string{"slice-empty-env"}
+	if err := cmd.Execute(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got[0] != "a" {
+		t.Fatalf("empty env var must fall back to the default, got %#v", got)
+	}
+}
+
+// Blank segments in a comma list are dropped, not appended as "".
+func TestStringSliceFlagBlankSegments(t *testing.T) {
+	var got []string
+	cmd := &Command{
+		Name: "slice-blank-segments",
+		Flags: []Flag{
+			&StringSliceFlag{
+				Name:    "items2",
+				EnvVars: []string{"TEST_SLICE_BLANK"},
+			},
+		},
+		Run: func(ctx context.Context, c *Command) error {
+			got = c.GetStringSlice("items2")
+			return nil
+		},
+	}
+
+	t.Setenv("TEST_SLICE_BLANK", "docker, ,podman,")
+	os.Args = []string{"slice-blank-segments"}
+	if err := cmd.Execute(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got[0] != "docker" || got[1] != "podman" {
+		t.Fatalf("blank segments must be dropped, got %#v", got)
+	}
+}
+
+// TestStringSliceFlagBlankCommandLineValue: a blank segment among repeated
+// command-line values is dropped, never appended as "".
+func TestStringSliceFlagBlankCommandLineValue(t *testing.T) {
+	var values []string
+	cmd := &Command{
+		Name: "slice-blank-cli",
+		Flags: []Flag{
+			&StringSliceFlag{Name: "fruits", AssignTo: &values},
+		},
+		Run: func(ctx context.Context, c *Command) error { return nil },
+	}
+	os.Args = []string{"slice-blank-cli", "--fruits", "apple", "--fruits", "", "--fruits", "banana"}
+	if err := cmd.Execute(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(values) != 2 || values[0] != "apple" || values[1] != "banana" {
+		t.Fatalf("blank value must be dropped, got %#v", values)
+	}
+}
+
+// TestStringSliceFlagEmptyCommandLineValue: --flag "" yields no entries and
+// falls through to the default, not a one-element [""] list.
+func TestStringSliceFlagEmptyCommandLineValue(t *testing.T) {
+	var values []string
+	cmd := &Command{
+		Name: "slice-empty-cli",
+		Flags: []Flag{
+			&StringSliceFlag{Name: "names", AssignTo: &values, DefaultValue: []string{"fallback"}},
+		},
+		Run: func(ctx context.Context, c *Command) error { return nil },
+	}
+	os.Args = []string{"slice-empty-cli", "--names", ""}
+	if err := cmd.Execute(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(values) != 1 || values[0] != "fallback" {
+		t.Fatalf("empty command-line value must fall to default, got %#v", values)
+	}
+}

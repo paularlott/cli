@@ -126,12 +126,12 @@ func (f *FlagTyped[T]) setFromEnvVar(parsedFlags map[string]interface{}) {
 	if len(f.EnvVars) > 0 {
 		for _, envVar := range f.EnvVars {
 			if value, ok := os.LookupEnv(envVar); ok {
-				// If slice then split by comma
+				// If slice then split by comma. Blank entries are dropped
+				// by parseString, so an empty value sets nothing.
 				if f.isSlice() {
 					values := strings.Split(value, ",")
 					for _, v := range values {
-						v = strings.TrimSpace(v)
-						f.parseString(v, true, parsedFlags)
+						f.parseString(strings.TrimSpace(v), true, parsedFlags)
 					}
 				} else {
 					f.parseString(value, true, parsedFlags)
@@ -305,6 +305,12 @@ func (f *FlagTyped[T]) parseString(value string, hasValue bool, parsedFlags map[
 		}
 
 	case *StringSliceFlag:
+		// Blank values never enter the list: [""] looks like a real
+		// one-element list to callers distinguishing "unset" from a value.
+		// Guards every source — command line, env var and config file.
+		if value == "" {
+			return nil
+		}
 		if existing, ok := parsedFlags[f.Name]; ok {
 			parsedFlags[f.Name] = append(existing.([]string), value)
 		} else {
