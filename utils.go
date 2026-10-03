@@ -42,3 +42,10 @@ func GetTypeText(value interface{}) string {
 func StrToPtr(v string) *string {
 	return &v
 }
+
+// isFlagArg reports whether a command line argument is a flag. A lone "-" is
+// not: by convention it stands for stdin or stdout, as an argument or as a
+// flag's value.
+func isFlagArg(arg string) bool {
+	return len(arg) > 1 && arg[0] == '-'
+}

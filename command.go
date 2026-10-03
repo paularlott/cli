@@ -295,7 +295,7 @@ func (c *Command) matchSubcommands(args []string) ([]string, *Command, []*Comman
 		}
 
 		// Check if it's a flag
-		if strings.HasPrefix(arg, "-") {
+		if isFlagArg(arg) {
 			// Collect the flag and its value (if any)
 			flagWithValue := c.collectFlag(arg, args, &i, current)
 			flags = append(flags, flagWithValue...)
@@ -370,7 +370,7 @@ func (c *Command) collectFlag(arg string, args []string, i *int, current *Comman
 			// Check if it's a bool flag
 			if _, isBool := flagObj.(*BoolFlag); !isBool {
 				// Non-bool flag needs a value
-				if *i+1 < len(args) && !strings.HasPrefix(args[*i+1], "-") && args[*i+1] != "--" {
+				if *i+1 < len(args) && !isFlagArg(args[*i+1]) && args[*i+1] != "--" {
 					result = append(result, args[*i+1])
 					*i++
 				}
@@ -388,7 +388,7 @@ func (c *Command) collectFlag(arg string, args []string, i *int, current *Comman
 			if flagObj != nil {
 				if _, isBool := flagObj.(*BoolFlag); !isBool {
 					// Non-bool flag needs a value
-					if *i+1 < len(args) && !strings.HasPrefix(args[*i+1], "-") && args[*i+1] != "--" {
+					if *i+1 < len(args) && !isFlagArg(args[*i+1]) && args[*i+1] != "--" {
 						result = append(result, args[*i+1])
 						*i++
 					}

@@ -53,7 +53,7 @@ func (c *Command) parseFlags(args []string) ([]string, error) {
 			if err := c.parseFlag(flag, value, hasValue, args, &i, parsed); err != nil {
 				return remainingArgs, err
 			}
-		} else if strings.HasPrefix(arg, "-") && len(arg) > 1 {
+		} else if isFlagArg(arg) {
 			// Short flag(s) (-f or -abc for bundled flags)
 			flagChars := arg[1:]
 
@@ -77,7 +77,7 @@ func (c *Command) parseFlags(args []string) ([]string, error) {
 						// Bool flags don't need values
 					default:
 						// Check if next arg is a value
-						if i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
+						if i+1 < len(args) && !isFlagArg(args[i+1]) {
 							value = args[i+1]
 							hasValue = true
 							i++ // consume the value
@@ -105,7 +105,7 @@ func (c *Command) parseFlags(args []string) ([]string, error) {
 func (c *Command) parseFlag(flag Flag, value string, hasValue bool, args []string, i *int, parsed map[string]interface{}) error {
 	if _, ok := flag.(*BoolFlag); !ok {
 		if !hasValue {
-			if *i+1 >= len(args) || strings.HasPrefix(args[*i+1], "-") {
+			if *i+1 >= len(args) || isFlagArg(args[*i+1]) {
 				return fmt.Errorf("flag --%s requires a value", flag.getName())
 			}
 			value = args[*i+1]
