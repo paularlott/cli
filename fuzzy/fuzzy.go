@@ -125,7 +125,9 @@ func Search(query string, items []NamedItem, opts Options) []Result {
 					}
 				}
 
-				if minDistance <= opts.Threshold {
+				// Threshold is a minimum score, and the score is the
+				// similarity, one less the normalised distance.
+				if 1.0-minDistance >= opts.Threshold {
 					score = 1.0 - minDistance
 					matched = true
 				}

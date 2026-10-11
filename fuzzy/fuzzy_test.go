@@ -532,3 +532,12 @@ func TestSearch_RaceConditions(t *testing.T) {
 		<-done
 	}
 }
+
+// The threshold is a minimum score: a close typo passes it and a word that
+// differs in most letters does not.
+func TestSearch_ThresholdIsMinimumScore(t *testing.T) {
+	results := Search("abcde", items("abcdf", "abxyz"), Options{MaxResults: 5, Threshold: 0.8})
+	if len(results) != 1 || results[0].Name != "abcdf" {
+		t.Fatalf("results = %v, want only abcdf", results)
+	}
+}

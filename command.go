@@ -58,10 +58,20 @@ func (c *Command) Execute(ctx context.Context) error {
 		return nil
 	}
 
-	// Check if we have suggestions for a failed command match
+	// A command that only groups subcommands can't take arguments, so an
+	// argument to it is a mistyped subcommand. Report it before any PreRun,
+	// which may need setup the user never asked for.
+	if matchedCommand.Run == nil && len(matchedCommand.Commands) > 0 && len(remainingArgs) > 0 {
+		if !c.Suggestions {
+			suggestions = nil
+		}
+		return unknownCommandError(remainingArgs[0], suggestions, matchedCommand)
+	}
+
+	// A root command with a Run may take arguments, so a word is only
+	// reported as a mistyped subcommand when it is close to one.
 	if c.Suggestions && len(suggestions) > 0 && matchedCommand == c && len(remainingArgs) > 0 {
-		c.displaySuggestions(suggestions, remainingArgs)
-		return fmt.Errorf("unknown command")
+		return unknownCommandError(remainingArgs[0], suggestions, matchedCommand)
 	}
 
 	// Parse named arguments
@@ -98,27 +108,14 @@ func (c *Command) Execute(ctx context.Context) error {
 		if matchedCommand.Run != nil {
 			runErr = matchedCommand.Run(ctx, matchedCommand)
 		} else {
-			var suggestions []string
-
-			// Try for suggestions
-			if c.Suggestions && len(remainingArgs) > 0 {
-				suggestions = c.findSimilarCommands(remainingArgs[0], matchedCommand.Commands, 2)
-				if len(suggestions) > 0 {
-					c.displaySuggestions(suggestions, remainingArgs)
-				}
-			}
-
-			// If we have remaining args and the command has subcommands, it's an unknown subcommand
-			if len(matchedCommand.Commands) > 0 && len(remainingArgs) > 0 {
-				runErr = fmt.Errorf("unknown command")
-			} else if len(suggestions) == 0 && !matchedCommand.DisableHelp {
+			// A mistyped subcommand was reported before PreRun, so with no
+			// Run there is only help to show.
+			if !matchedCommand.DisableHelp {
 				matchedCommand.ShowHelp()
+			} else if len(remainingArgs) > 0 {
+				runErr = unknownCommandError(remainingArgs[0], nil, matchedCommand)
 			} else {
-				if len(remainingArgs) > 0 {
-					fmt.Printf("Unknown command: %s\n", remainingArgs[0])
-				} else {
-					fmt.Printf("Unknown command\n")
-				}
+				fmt.Printf("Unknown command\n")
 			}
 		}
 	}
@@ -278,6 +275,8 @@ func (c *Command) matchSubcommands(args []string) ([]string, *Command, []*Comman
 	globalFlags := []Flag{}
 	commandSequence := []*Command{c}
 	var suggestions []string
+	var unknownCommand bool // a mistyped subcommand has been seen
+	var afterBareFlag bool  // the previous word was a flag given no value
 
 	// Collections for reordering
 	var flags []string
@@ -299,10 +298,17 @@ func (c *Command) matchSubcommands(args []string) ([]string, *Command, []*Comman
 			// Collect the flag and its value (if any)
 			flagWithValue := c.collectFlag(arg, args, &i, current)
 			flags = append(flags, flagWithValue...)
+			afterBareFlag = len(flagWithValue) == 1 && !strings.Contains(arg, "=")
+			i++
+			continue
 		} else {
-			// Check if it's a subcommand
+			// Check if it's a subcommand. After a mistyped subcommand the
+			// words that follow are its arguments, never subcommands.
 			found := false
 			for _, subcmd := range current.Commands {
+				if unknownCommand {
+					break
+				}
 				if arg == subcmd.Name || matchesAlias(arg, subcmd.Aliases) {
 					// Save the global flags from the parent command
 					for _, flag := range current.Flags {
@@ -327,12 +333,22 @@ func (c *Command) matchSubcommands(args []string) ([]string, *Command, []*Comman
 
 			if !found {
 				// Not a subcommand, so it's a positional argument
-				if len(current.Commands) > 0 {
-					// We expected a subcommand but didn't find one - save for suggestions
+				if len(current.Commands) > 0 && !unknownCommand {
+					// We expected a subcommand but didn't find one - save for
+					// suggestions. Only the first unknown word is the mistyped
+					// command; any after it are its arguments.
 					suggestions = c.findSimilarCommands(arg, current.Commands, 2)
+
+					// A command with no Run takes no arguments, so the word is
+					// a mistyped subcommand, unless it follows a flag the
+					// parser doesn't know and may be that flag's value.
+					if current.Run == nil && !afterBareFlag {
+						unknownCommand = true
+					}
 				}
 				positionalArgs = append(positionalArgs, arg)
 			}
+			afterBareFlag = false
 		}
 
 		i++
