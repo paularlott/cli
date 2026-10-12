@@ -75,6 +75,25 @@ The positional arguments can be fetched as a string slice using `GetArgs()` on t
 args := cmd.GetArgs()
 ```
 
+### Passing Arguments Through
+
+A command that runs another program, such as `app run <host> <command> [args...]`, needs the other program's flags left alone. Set `PassThrough: true` and, once every named argument has been given, the rest of the command line is returned by `GetArgs()` as it is, flags included:
+
+```go
+cmd := &cli.Command{
+    Name:        "run",
+    PassThrough: true,
+    Flags:       []cli.Flag{&cli.IntFlag{Name: "timeout", Aliases: []string{"t"}}},
+    Arguments: []cli.Argument{
+        &cli.StringArg{Name: "host", Required: true},
+        &cli.StringArg{Name: "command", Required: true},
+    },
+    MaxArgs: cli.UnlimitedArgs,
+}
+```
+
+With this, `app run -t 60 box grep -r todo .` sets `timeout` to 60 and `GetArgs()` returns `["-r", "todo", "."]`. The command's own flags go before or between the named arguments. Without `PassThrough`, put `--` before the arguments to pass through.
+
 ## Flag Validation
 
 Flags can be validated using the `ValidateArg` method. This method is called on each argument once all named arguments have been processed.

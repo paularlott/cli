@@ -14,11 +14,13 @@ func (c *Command) parseFlags(args []string) ([]string, error) {
 	shortFlags := make(map[string]Flag)
 	longFlags := make(map[string]Flag)
 
-	for _, flag := range c.Flags {
+	// Inherited global flags first, so a command's own flag wins when both
+	// use the same name or alias (as matchSubcommands already assumes)
+	for _, flag := range c.globalFlags {
 		flag.register(longFlags, shortFlags)
 	}
 
-	for _, flag := range c.globalFlags {
+	for _, flag := range c.Flags {
 		flag.register(longFlags, shortFlags)
 	}
 

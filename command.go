@@ -32,6 +32,7 @@ type Command struct {
 	DisableHelp    bool                                                             // Disable the automatic help command for this command
 	DisableVersion bool                                                             // Disable the automatic version command for this command
 	Suggestions    bool                                                             // Enable suggestions for unknown commands, if true then the command will try to suggest similar commands if the command is not found
+	PassThrough    bool                                                             // Once every declared argument is given, pass the rest of the command line through as unnamed arguments, flags included, e.g. for a command that runs another program
 	parsedFlags    map[string]interface{}                                           // Parsed flags for this command
 	parsedArgs     map[string]interface{}                                           // Parsed arguments for this command
 	givenFlags     map[string]bool                                                  // Flags that were given and not defaulted
@@ -285,6 +286,14 @@ func (c *Command) matchSubcommands(args []string) ([]string, *Command, []*Comman
 	i := 0
 	for i < len(args) {
 		arg := args[i]
+
+		// Once a pass-through command has all its declared arguments, the
+		// rest of the line belongs to it, flags included
+		if current.PassThrough && len(current.Arguments) > 0 && len(positionalArgs) >= len(current.Arguments) {
+			positionalArgs = append(positionalArgs, "--")
+			positionalArgs = append(positionalArgs, args[i:]...)
+			break
+		}
 
 		// Check for flag terminator
 		if arg == "--" {
