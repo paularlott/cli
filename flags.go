@@ -14,7 +14,7 @@ type Flag interface {
 	isGlobal() bool
 	register(longFlags, shortFlags map[string]Flag)
 	parseString(value string, hasValue bool, parsedFlags map[string]interface{}) error
-	setFromEnvVar(parsedFlags map[string]interface{})
+	setFromEnvVar(parsedFlags map[string]interface{}) error
 	setFromDefault(parsedFlags map[string]interface{})
 	configPaths() []string
 	isSlice() bool
@@ -122,24 +122,26 @@ func (f *FlagTyped[T]) register(longFlags, shortFlags map[string]Flag) {
 	}
 }
 
-func (f *FlagTyped[T]) setFromEnvVar(parsedFlags map[string]interface{}) {
-	if len(f.EnvVars) > 0 {
-		for _, envVar := range f.EnvVars {
-			if value, ok := os.LookupEnv(envVar); ok {
-				// If slice then split by comma. Blank entries are dropped
-				// by parseString, so an empty value sets nothing.
-				if f.isSlice() {
-					values := strings.Split(value, ",")
-					for _, v := range values {
-						f.parseString(strings.TrimSpace(v), true, parsedFlags)
-					}
-				} else {
-					f.parseString(value, true, parsedFlags)
-				}
-				return // Use the first found environment variable
-			}
+func (f *FlagTyped[T]) setFromEnvVar(parsedFlags map[string]interface{}) error {
+	for _, envVar := range f.EnvVars {
+		value, ok := os.LookupEnv(envVar)
+		if !ok {
+			continue
 		}
+		// If slice then split by comma. Blank entries are dropped
+		// by parseString, so an empty value sets nothing.
+		if f.isSlice() {
+			for _, v := range strings.Split(value, ",") {
+				if err := f.parseString(strings.TrimSpace(v), true, parsedFlags); err != nil {
+					return fmt.Errorf("environment variable %s: %w", envVar, err)
+				}
+			}
+		} else if err := f.parseString(value, true, parsedFlags); err != nil {
+			return fmt.Errorf("environment variable %s: %w", envVar, err)
+		}
+		return nil // Use the first found environment variable
 	}
+	return nil
 }
 
 func (f *FlagTyped[T]) setFromDefault(parsedFlags map[string]interface{}) {

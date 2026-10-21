@@ -36,6 +36,7 @@ type Command struct {
 	parsedFlags    map[string]interface{}                                           // Parsed flags for this command
 	parsedArgs     map[string]interface{}                                           // Parsed arguments for this command
 	givenFlags     map[string]bool                                                  // Flags that were given and not defaulted
+	flagSources    map[string]FlagSource                                            // Where each flag's value came from
 	remainingArgs  []string                                                         // Remaining arguments after parsing flags and subcommands
 	globalFlags    []Flag                                                           // Global flags that are available for this command and all subcommands
 	commandChain   []*Command                                                       // Tack the command chain to the active command
@@ -132,7 +133,15 @@ func (c *Command) Execute(ctx context.Context) error {
 	return errors.Join(preErr, runErr, postErr)
 }
 
+// ReloadFlags parses the flags again from the command line, the environment and the configuration file, which is
+// read again (a ConfigFileSource that has a Reload method, such as ConfigFileBase, is told to forget what it read
+// before), and assigns their values again.
 func (c *Command) ReloadFlags() error {
+	if r, ok := c.ConfigFile.(interface{ Reload() error }); ok {
+		if err := r.Reload(); err != nil && err != ConfigFileNotFoundError {
+			return err
+		}
+	}
 	_, _, _, _, err := c.processFlags()
 	if err != nil {
 		return err
@@ -186,12 +195,28 @@ func (c *Command) processFlags() ([]string, *Command, []*Command, []string, erro
 	combinedFlags = append(combinedFlags, matchedCommand.globalFlags...)
 	combinedFlags = append(combinedFlags, matchedCommand.Flags...)
 
+	// Record which flags the command line set, then after each later source which flags it set
+	matchedCommand.flagSources = make(map[string]FlagSource)
+	markSources := func(src FlagSource) {
+		for _, flag := range combinedFlags {
+			if _, ok := matchedCommand.parsedFlags[flag.getName()]; ok {
+				if _, seen := matchedCommand.flagSources[flag.getName()]; !seen {
+					matchedCommand.flagSources[flag.getName()] = src
+				}
+			}
+		}
+	}
+	markSources(SourceCommandLine)
+
 	// For flags that are not set on the command line see if they can be set from an environment variable
 	for _, flag := range combinedFlags {
 		if _, ok := matchedCommand.parsedFlags[flag.getName()]; !ok {
-			flag.setFromEnvVar(matchedCommand.parsedFlags)
+			if err := flag.setFromEnvVar(matchedCommand.parsedFlags); err != nil {
+				return nil, nil, nil, nil, err
+			}
 		}
 	}
+	markSources(SourceEnv)
 
 	// For flags that are still not set, check if they can be set from a config
 	if c.ConfigFile != nil {
@@ -213,23 +238,8 @@ func (c *Command) processFlags() ([]string, *Command, []*Command, []string, erro
 					if len(cfgPaths) > 0 {
 						for _, path := range cfgPaths {
 							if v, ok := c.ConfigFile.GetValue(path); ok {
-								isSlice := reflect.TypeOf(v).Kind() == reflect.Slice
-								if isSlice == flag.isSlice() {
-									if isSlice {
-										switch vals := v.(type) {
-										case []interface{}:
-											for _, val := range vals {
-												flag.parseString(fmt.Sprintf("%v", val), true, matchedCommand.parsedFlags)
-											}
-										case []string:
-											for _, val := range vals {
-												flag.parseString(fmt.Sprintf("%v", val), true, matchedCommand.parsedFlags)
-											}
-										default:
-										}
-									} else {
-										flag.parseString(fmt.Sprintf("%v", v), true, matchedCommand.parsedFlags)
-									}
+								if err := setFromConfig(flag, path, v, matchedCommand.parsedFlags); err != nil {
+									return nil, nil, nil, nil, err
 								}
 							}
 						}
@@ -239,11 +249,16 @@ func (c *Command) processFlags() ([]string, *Command, []*Command, []string, erro
 		}
 	}
 
+	markSources(SourceConfigFile)
+
 	// For flags that are not set, set the default values
 	matchedCommand.givenFlags = make(map[string]bool)
 	for _, flag := range combinedFlags {
 		if _, ok := matchedCommand.parsedFlags[flag.getName()]; !ok {
 			flag.setFromDefault(matchedCommand.parsedFlags)
+			if _, ok := matchedCommand.parsedFlags[flag.getName()]; ok {
+				matchedCommand.flagSources[flag.getName()] = SourceDefault
+			}
 		} else {
 			matchedCommand.givenFlags[flag.getName()] = true
 		}
@@ -499,4 +514,35 @@ func matchesAlias(name string, aliases []string) bool {
 		}
 	}
 	return false
+}
+
+// setFromConfig sets flag from the value v found at path in the configuration file. A single value for a list flag
+// is split at commas, as an environment variable is. A list for a single-valued flag, or a value the flag cannot
+// parse, is an error naming the path.
+func setFromConfig(flag Flag, path string, v any, parsedFlags map[string]interface{}) error {
+	isSlice := v != nil && reflect.TypeOf(v).Kind() == reflect.Slice
+	if isSlice && !flag.isSlice() {
+		return fmt.Errorf("config %s: a list, but --%s takes a single value", path, flag.getName())
+	}
+	if !isSlice && flag.isSlice() { // a comma-separated string, as in an environment variable
+		for _, part := range strings.Split(fmt.Sprintf("%v", v), ",") {
+			if err := flag.parseString(strings.TrimSpace(part), true, parsedFlags); err != nil {
+				return fmt.Errorf("config %s: %w", path, err)
+			}
+		}
+		return nil
+	}
+	if !isSlice {
+		if err := flag.parseString(fmt.Sprintf("%v", v), true, parsedFlags); err != nil {
+			return fmt.Errorf("config %s: %w", path, err)
+		}
+		return nil
+	}
+	rv := reflect.ValueOf(v)
+	for i := range rv.Len() {
+		if err := flag.parseString(fmt.Sprintf("%v", rv.Index(i).Interface()), true, parsedFlags); err != nil {
+			return fmt.Errorf("config %s: %w", path, err)
+		}
+	}
+	return nil
 }

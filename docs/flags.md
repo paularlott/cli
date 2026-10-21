@@ -15,6 +15,18 @@ When resolving the value of a flag, the following sources are checked in order:
 
 The first non-empty value found in this order is used.
 
+### Where a value came from
+
+`HasFlag(name)` is true for a value from any source but the default. `FlagSource(name)` says which source it was:
+`cli.SourceCommandLine`, `cli.SourceEnv`, `cli.SourceConfigFile`, `cli.SourceDefault`, or `cli.SourceNone` when the
+flag has no value. An alias resolves to its flag.
+
+```go
+if cmd.FlagSource("api-key") == cli.SourceCommandLine {
+    fmt.Fprintln(os.Stderr, "warning: --api-key is visible in the process list")
+}
+```
+
 ## Defining Flags
 
 Flags can be defined in the command struct using the `Flags` field. Each flag is represented by a `Flag` struct, which includes the flag name, default value, and description.

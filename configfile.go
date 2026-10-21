@@ -95,6 +95,17 @@ func (c *ConfigFileBase) searchForConfigFile() string {
 	return ""
 }
 
+// Reload forgets the data read before and reads the configuration file again, searching for it again (it may have
+// been created, moved or removed since). Without a file it returns ConfigFileNotFoundError and holds no data.
+func (c *ConfigFileBase) Reload() error {
+	c.mutex.Lock()
+	c.isLoaded = false
+	c.data = make(map[string]any)
+	c.fileUsed = ""
+	c.mutex.Unlock()
+	return c.LoadData()
+}
+
 func (c *ConfigFileBase) LoadData() error {
 	if !c.isLoaded {
 		c.mutex.Lock()

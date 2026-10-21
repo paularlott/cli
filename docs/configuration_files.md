@@ -52,6 +52,22 @@ The `ConfigPath` field on the `Flag` struct is used to specify the path to data 
 listen = ":8080"
 ```
 
+## Reloading
+
+`ReloadFlags` on the root command parses the flags again: the command line, the environment and the configuration file, which it reads again (the file is searched for again, and keys removed from it are gone). Variables that flags are assigned to are updated. Call it on demand, for example on SIGHUP:
+
+```go
+if err := cmd.ReloadFlags(); err != nil {
+  log.Println("configuration not reloaded:", err)
+}
+```
+
+`ReloadFlags` assigns every flag again. To pick up only some values while the program keeps the rest, build a second command whose flags are assigned to a scratch copy, call `ReloadFlags` on it, and copy the values you want. `ConfigFile.Reload()` re-reads the file alone.
+
+## Values that cannot be used
+
+A value from an environment variable or the configuration file that its flag cannot parse (`port = "abc"` for an int flag) fails the command, naming the variable or the config path, as a bad value on the command line does. So does a list in the file for a flag that takes one value. A single string for a list flag is split at commas, as an environment variable is.
+
 ## Watching for Changes
 
 If the library is built with the tag `cli_watch` then it's possible to watch the configuration file for changes and act upon those changes.

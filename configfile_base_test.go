@@ -206,3 +206,29 @@ func TestConfigFileBase_Save_NewFile(t *testing.T) {
 		t.Error("saved file is empty")
 	}
 }
+
+func TestConfigFileBase_Reload(t *testing.T) {
+	cfg, path := newJSONConfigBase(t, `{"a": 1, "b": 2}`)
+	if v, _ := cfg.GetValue("b"); v != float64(2) {
+		t.Fatalf("b: %v", v)
+	}
+	if err := os.WriteFile(path, []byte(`{"a": 3}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if v, _ := cfg.GetValue("a"); v != float64(1) {
+		t.Fatalf("read again without Reload: %v", v)
+	}
+	if err := cfg.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	if v, _ := cfg.GetValue("a"); v != float64(3) {
+		t.Fatalf("a after Reload: %v", v)
+	}
+	if _, ok := cfg.GetValue("b"); ok {
+		t.Fatal("a key removed from the file survived Reload")
+	}
+	os.Remove(path)
+	if err := cfg.Reload(); err != ConfigFileNotFoundError || cfg.FileUsed() != "" {
+		t.Fatalf("missing file: %v %q", err, cfg.FileUsed())
+	}
+}

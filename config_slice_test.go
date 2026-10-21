@@ -62,5 +62,32 @@ func TestStringSliceConfigBlankEntry(t *testing.T) {
 	runSlice(t, "p4", "[server]\nenabled_backends = [\"docker\", \"\", \"podman\"]\n", []string{"docker", "podman"})
 }
 func TestStringSliceConfigStringValue(t *testing.T) {
-	runSlice(t, "p5", "[server]\nenabled_backends = \"docker, podman\"\n", []string{"ALL"})
+	runSlice(t, "p5", "[server]\nenabled_backends = \"docker, podman\"\n", []string{"docker", "podman"})
+}
+
+func TestReloadFlagsRereadsConfigFile(t *testing.T) {
+	cfgPath := filepath.Join(t.TempDir(), "t.toml")
+	os.WriteFile(cfgPath, []byte("port = 1\n"), 0644)
+	configFile := cfgPath
+	var port int
+	cmd := &cli.Command{
+		Name:       "r",
+		ConfigFile: cli_toml.NewConfigFile(&configFile, nil),
+		Flags:      []cli.Flag{&cli.IntFlag{Name: "port", ConfigPath: []string{"port"}, AssignTo: &port}},
+		Run:        func(context.Context, *cli.Command) error { return nil },
+	}
+	saved := os.Args
+	os.Args = []string{"r"}
+	defer func() { os.Args = saved }()
+	if err := cmd.Execute(context.Background()); err != nil || port != 1 {
+		t.Fatalf("%v %d", err, port)
+	}
+	os.WriteFile(cfgPath, []byte("port = 2\n"), 0644)
+	if err := cmd.ReloadFlags(); err != nil || port != 2 {
+		t.Fatalf("after reload: %v %d", err, port)
+	}
+	os.WriteFile(cfgPath, []byte("port = \"x\"\n"), 0644)
+	if err := cmd.ReloadFlags(); err == nil {
+		t.Fatal("a bad value on reload was accepted")
+	}
 }
