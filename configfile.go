@@ -65,8 +65,9 @@ func (c *ConfigFileBase) searchForConfigFile() string {
 
 	fileName := *c.FileName
 
-	// If the filename given is to a file then accept it and don't search for other possible matches
-	if info, err := os.Stat(fileName); !os.IsNotExist(err) && !info.IsDir() {
+	// If the filename given is to a file then accept it and don't search for other possible matches. A name that
+	// cannot be checked (a directory the process may not read) is not a file.
+	if info, err := os.Stat(fileName); err == nil && !info.IsDir() {
 		return fileName
 	}
 

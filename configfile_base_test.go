@@ -232,3 +232,35 @@ func TestConfigFileBase_Reload(t *testing.T) {
 		t.Fatalf("missing file: %v %q", err, cfg.FileUsed())
 	}
 }
+
+// A file name that cannot be checked (a directory the process may not read, as a container's home directory under
+// another UID) is not found, rather than taken for a file: the search goes on and finds nothing.
+func TestConfigFileBase_SearchUnreadableDir(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root reads any directory")
+	}
+	dir := t.TempDir()
+	locked := filepath.Join(dir, "locked")
+	if err := os.Mkdir(locked, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(locked, 0); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(locked, 0o700) })
+
+	name := filepath.Join(locked, "app.json")
+	cfg := &ConfigFileBase{}
+	cfg.InitConfigFile()
+	cfg.FileName = &name
+	cfg.SearchPath = func() []string { return []string{locked} }
+	cfg.Unmarshal = func(data []byte, v any) error { return json.Unmarshal(data, v) }
+	cfg.Marshal = func(v any) ([]byte, error) { return json.Marshal(v) }
+
+	if _, ok := cfg.GetValue("x"); ok {
+		t.Error("GetValue(x): found a value in a file that cannot be read")
+	}
+	if used := cfg.FileUsed(); used != "" {
+		t.Errorf("FileUsed: got %q, want empty", used)
+	}
+}
